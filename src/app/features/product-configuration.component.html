@@ -103,7 +103,7 @@
                 <div class="alert alert-danger" role="alert">
                   No se pudieron cargar los precios: {{ priceError }}
                 </div>
-              } @else if (pricesLoading) {
+              } @else if (pricesLoading()) {
                 <div class="text-center text-body-secondary py-4">Cargando precios...</div>
               } @else if (prices.length === 0) {
                 <div class="text-center text-body-secondary py-4">No hay precios registrados.</div>

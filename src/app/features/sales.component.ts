@@ -177,7 +177,11 @@ export class SalesComponent implements OnInit {
           this.total = result.sales.meta.total;
           this.products = result.products.data;
           this.customers = result.customers.data;
-          this.priceLists = result.priceLists.data;
+          this.priceLists = result.priceLists.data.filter((priceList) =>
+            priceList.is_active &&
+            priceList.currency === 'USD' &&
+            (priceList.code === 'retail' || priceList.code === 'wholesale')
+          );
           this.locations = result.locations.data;
           this.openSessions = result.sessions.data.filter((session) => session.status === 'open');
           this.exchangeRate = result.exchangeRate?.data ?? null;

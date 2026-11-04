@@ -93,6 +93,8 @@ export class ErpModuleComponent implements OnInit {
   readonly productPriceLists = signal<PriceList[]>([]);
   readonly productPriceListsLoading = signal(false);
   readonly productPriceListsError = signal('');
+  readonly availableFormFields = signal<ErpField[]>([]);
+  readonly activeFormFields = signal<ErpField[]>([]);
   form = new FormGroup<Record<string, FormControl<string>>>({});
   #request?: Subscription;
 
@@ -100,6 +102,11 @@ export class ErpModuleComponent implements OnInit {
     this.#route.data.pipe(takeUntilDestroyed(this.#destroyRef)).subscribe((data) => {
       const config = data['module'] as ErpModuleConfig;
       this.config.set(config);
+      this.formVisible.set(false);
+      this.selectedRow.set(null);
+      this.activeFormFields.set([]);
+      this.form = new FormGroup<Record<string, FormControl<string>>>({});
+      this.availableFormFields.set(config.fields ?? []);
       this.searchTerm.set('');
       this.showInactive.set(false);
       this.successMessage.set('');
@@ -129,12 +136,24 @@ export class ErpModuleComponent implements OnInit {
   }
 
   get formFields(): ErpField[] {
+    if (this.formVisible() && this.activeFormFields().length) {
+      return this.activeFormFields();
+    }
+
+    return this.availableFormFields();
+  }
+
+  private fieldsFor(row: ModuleRow | null): ErpField[] {
     const config = this.config();
     const fields = config?.fields ?? [];
-    if (config?.endpoint !== 'products' || this.selectedRow()) {
+    if (config?.endpoint !== 'products' || row) {
       return fields;
     }
 
+    return this.availableFormFields();
+  }
+
+  private buildProductFields(fields: ErpField[]): ErpField[] {
     return [
       ...fields,
       ...this.productPriceLists().map((priceList): ErpField => ({
@@ -150,6 +169,14 @@ export class ErpModuleComponent implements OnInit {
     ];
   }
 
+  private refreshAvailableFormFields(): void {
+    const config = this.config();
+    const fields = config?.fields ?? [];
+    this.availableFormFields.set(
+      config?.endpoint === 'products' ? this.buildProductFields(fields) : fields
+    );
+  }
+
   newRecord(): void {
     this.openForm(null);
   }
@@ -160,8 +187,10 @@ export class ErpModuleComponent implements OnInit {
 
   openForm(row: ModuleRow | null): void {
     this.selectedRow.set(row);
+    const fields = row ? this.fieldsFor(row) : this.availableFormFields();
+    this.activeFormFields.set(fields);
     const controls: Record<string, FormControl<string>> = {};
-    for (const field of this.formFields) {
+    for (const field of fields) {
       const validators = [];
       if (field.required) {
         validators.push(Validators.required);
@@ -179,13 +208,17 @@ export class ErpModuleComponent implements OnInit {
         validators.push(Validators.pattern(field.pattern));
       }
 
-      const value = row
-        ? this.fieldValue(row, field.key)
-        : '';
-      controls[field.key] = new FormControl(value, {
+      const value = row ? this.fieldValue(row, field.key) : '';
+      controls[field.key] = new FormControl(
+        {
+          value,
+          disabled: field.key === 'category_id' && this.categoryOptionsLoading()
+        },
+        {
         nonNullable: true,
         validators
-      });
+        }
+      );
     }
 
     this.formError.set('');
@@ -195,14 +228,15 @@ export class ErpModuleComponent implements OnInit {
 
   saveRecord(): void {
     const config = this.config();
-    if (!config || !this.formFields.length || this.form.invalid || this.saving()) {
+    const fields = this.formFields;
+    if (!config || !fields.length || this.form.invalid || this.saving()) {
       this.form.markAllAsTouched();
       return;
     }
 
     const payload: Record<string, unknown> = {};
     const prices: Array<{ price_list_id: number; unit_id: null; amount: string }> = [];
-    for (const field of this.formFields) {
+    for (const field of fields) {
       const rawValue = this.form.controls[field.key].value.trim();
       if (field.priceListId !== undefined) {
         if (rawValue) {
@@ -226,6 +260,10 @@ export class ErpModuleComponent implements OnInit {
     }
 
     const row = this.selectedRow();
+    if (!row && config.endpoint === 'products' && prices.length !== 2) {
+      this.formError.set('Debes ingresar los precios USD de Detal y Mayorista.');
+      return;
+    }
     if (!row && config.endpoint === 'products') {
       payload['prices'] = prices;
     }
@@ -294,7 +332,7 @@ export class ErpModuleComponent implements OnInit {
 
   isInvalid(field: ErpField): boolean {
     const control = this.form.controls[field.key];
-    return control.touched && control.invalid;
+    return Boolean(control?.touched && control.invalid);
   }
 
   load(page = this.currentPage()): void {
@@ -373,6 +411,7 @@ export class ErpModuleComponent implements OnInit {
 
   loadCategoryOptions(config: ErpModuleConfig): void {
     this.categoryOptionsLoading.set(true);
+    this.form.controls['category_id']?.disable({ emitEvent: false });
     this.categoryOptionsError.set('');
     forkJoin([
       this.#api.get<{ data: Array<{ id: number; name: string }> }>('categories'),
@@ -383,7 +422,10 @@ export class ErpModuleComponent implements OnInit {
     ])
       .pipe(
         takeUntilDestroyed(this.#destroyRef),
-        finalize(() => this.categoryOptionsLoading.set(false))
+        finalize(() => {
+          this.categoryOptionsLoading.set(false);
+          this.form.controls['category_id']?.enable({ emitEvent: false });
+        })
       )
       .subscribe({
         next: ([active, inactive]) => {
@@ -405,6 +447,7 @@ export class ErpModuleComponent implements OnInit {
               }
             : field);
           this.config.set({ ...config, fields });
+          this.refreshAvailableFormFields();
           this.categoryOptionsLoaded.set(true);
         },
         error: (error: unknown) => this.categoryOptionsError.set(getApiErrorMessage(error))
@@ -430,6 +473,7 @@ export class ErpModuleComponent implements OnInit {
             return;
           }
           this.productPriceLists.set(lists.sort((a, b) => a.code.localeCompare(b.code)));
+          this.refreshAvailableFormFields();
         },
         error: (error: unknown) => this.productPriceListsError.set(getApiErrorMessage(error))
       });

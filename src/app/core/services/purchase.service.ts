@@ -24,7 +24,7 @@ export class PurchaseService {
     supplier_id: number;
     inventory_location_id: number;
     document_number: string | null;
-    currency: string;
+    currency: 'USD';
     notes: string | null;
     lines: Array<{ product_id: number; quantity: string; unit_cost: string }>;
   }): Observable<ApiItem<Purchase>> {

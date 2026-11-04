@@ -213,6 +213,44 @@
       </c-row>
 
       <c-card class="mb-4">
+        <c-card-header><strong>Historial de transferencias</strong></c-card-header>
+        <c-card-body>
+          @if (transfers.length === 0) {
+            <div class="text-center text-body-secondary py-4">No hay transferencias registradas.</div>
+          } @else {
+            <div class="table-responsive">
+              <table cTable [striped]="true" [hover]="true">
+                <thead>
+                  <tr>
+                    <th scope="col">Fecha</th>
+                    <th scope="col">Producto</th>
+                    <th scope="col">Origen</th>
+                    <th scope="col">Destino</th>
+                    <th scope="col">Cantidad</th>
+                    <th scope="col">Estado</th>
+                    <th scope="col">Motivo</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (transfer of transfers; track transfer.id) {
+                    <tr>
+                      <td>{{ transfer.created_at }}</td>
+                      <td>{{ productName(transfer.product_id) }}</td>
+                      <td>{{ locationName(transfer.source_location_id) }}</td>
+                      <td>{{ locationName(transfer.destination_location_id) }}</td>
+                      <td>{{ transfer.quantity }}</td>
+                      <td>{{ transfer.status }}</td>
+                      <td>{{ transfer.reason }}</td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+          }
+        </c-card-body>
+      </c-card>
+
+      <c-card class="mb-4">
         <c-card-header><strong>Historial de desposte</strong></c-card-header>
         <c-card-body>
           @if (processings.length === 0) {
@@ -405,10 +443,6 @@
               <label cLabel for="processing-waste-quantity">Cantidad de merma</label>
               <input cFormControl id="processing-waste-quantity" type="number" min="0" step="0.001" formControlName="waste_quantity" />
             </c-col>
-            <c-col md="4">
-              <label cLabel for="processing-waste-share">Porcentaje del costo asignado a merma</label>
-              <input cFormControl id="processing-waste-share" type="number" min="0" max="100" step="0.0001" formControlName="waste_cost_share" />
-            </c-col>
             <c-col xs="12">
               <label cLabel for="processing-reason">Motivo</label>
               <input cFormControl id="processing-reason" type="text" maxlength="255" formControlName="reason" />
@@ -438,10 +472,14 @@
                   <input cFormControl [id]="'processing-output-quantity-' + index" type="number" min="0.001" step="0.001" formControlName="quantity" />
                 </c-col>
                 <c-col md="3">
-                  <label cLabel [for]="'processing-output-share-' + index">Porcentaje de costo</label>
-                  <input cFormControl [id]="'processing-output-share-' + index" type="number" min="0.0001" max="100" step="0.0001" formControlName="cost_share" />
+                  <label cLabel>Precio Detal USD</label>
+                  <input cFormControl [value]="retailPriceForValue(output.value.product_id)?.amount ?? 'Sin precio'" readonly />
                 </c-col>
                 <c-col md="2">
+                  <label cLabel>Distribución</label>
+                  <input cFormControl [value]="outputCostShare(index) + '%'" readonly />
+                </c-col>
+                <c-col md="1">
                   <button
                     cButton
                     color="danger"
@@ -457,9 +495,17 @@
               </c-row>
             }
           </div>
-          <div class="small" [class.text-success]="processingShareTotal() === '100.0000'" [class.text-danger]="processingShareTotal() !== '100.0000'">
-            Distribución de costos: {{ processingShareTotal() }}% (debe sumar 100% incluyendo merma).
+          <div class="small mt-2" [class.text-success]="physicalDifference() === '0.000'" [class.text-danger]="physicalDifference() !== '0.000'">
+            Diferencia física: {{ physicalDifference() }} kg. Debe ser 0.000 kg (origen = subproductos + merma).
           </div>
+          <div class="small text-warning mt-1">
+            La distribución se calcula automáticamente según cantidad × Precio Detal USD. La merma no recibe costo comercial.
+          </div>
+          @if (!processingPricesReady()) {
+            <div class="small text-danger mt-1">
+              Selecciona subproductos con Precio Detal USD activo para poder confirmar.
+            </div>
+          }
         </c-modal-body>
         <c-modal-footer>
           <button cButton color="secondary" variant="outline" type="button" [disabled]="saving" (click)="processingModalVisible = false">Cancelar</button>

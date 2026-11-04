@@ -1,5 +1,5 @@
 import { HttpErrorResponse } from '@angular/common/http';
-import { Component, DestroyRef, inject, OnInit } from '@angular/core';
+import { ChangeDetectorRef, Component, DestroyRef, inject, OnInit, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { FormControl, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
@@ -64,6 +64,7 @@ import { UnitService } from '../core/services/unit.service';
 export class ProductConfigurationComponent implements OnInit {
   readonly #route = inject(ActivatedRoute);
   readonly #destroyRef = inject(DestroyRef);
+  readonly #changeDetector = inject(ChangeDetectorRef);
   readonly #products = inject(ProductService);
   readonly #units = inject(UnitService);
   readonly #priceLists = inject(PriceListService);
@@ -74,7 +75,7 @@ export class ProductConfigurationComponent implements OnInit {
   units: Unit[] = [];
   priceLists: PriceList[] = [];
   loading = false;
-  pricesLoading = false;
+  readonly pricesLoading = signal(false);
   saving = false;
   actionId: number | null = null;
   pageError = '';
@@ -137,6 +138,8 @@ export class ProductConfigurationComponent implements OnInit {
     this.loading = true;
     this.pageError = '';
     this.priceError = '';
+    this.prices = [];
+    this.pricesLoading.set(true);
     forkJoin({
       product: this.#products.get(productId),
       conversions: this.#products.conversions(productId),
@@ -151,21 +154,35 @@ export class ProductConfigurationComponent implements OnInit {
         next: (result) => {
           this.product = result.product.data;
           this.conversions = result.conversions.data;
-          this.units = result.units.data;
-          this.priceLists = result.priceLists.data;
+          this.units = result.units.data.filter((unit) => unit.is_active);
+          this.priceLists = result.priceLists.data.filter((priceList) =>
+            priceList.is_active &&
+            priceList.currency === 'USD' &&
+            (priceList.code === 'retail' || priceList.code === 'wholesale')
+          );
         },
         error: (error: unknown) => this.pageError = this.apiErrorMessage(error)
       });
 
-    this.pricesLoading = true;
     this.#products.prices(productId)
       .pipe(
         takeUntilDestroyed(this.#destroyRef),
-        finalize(() => this.pricesLoading = false)
+        finalize(() => {
+          this.pricesLoading.set(false);
+          this.#changeDetector.markForCheck();
+        })
       )
       .subscribe({
-        next: (result) => this.prices = result.data,
-        error: (error: unknown) => this.priceError = this.apiErrorMessage(error)
+        next: (result) => {
+          this.prices = result.data;
+          this.pricesLoading.set(false);
+          this.#changeDetector.markForCheck();
+        },
+        error: (error: unknown) => {
+          this.priceError = this.apiErrorMessage(error);
+          this.pricesLoading.set(false);
+          this.#changeDetector.markForCheck();
+        }
       });
   }
 

@@ -200,7 +200,7 @@
     </c-col>
   </c-row>
 
-  @if (manageable) {
+  @if (manageable && formVisible()) {
     <c-modal
       [(visible)]="formVisible"
       alignment="center"
@@ -238,7 +238,6 @@
                     cSelect
                     [id]="'field-' + field.key"
                     [formControlName]="field.key"
-                    [disabled]="field.key === 'category_id' && categoryOptionsLoading()"
                     [class.is-invalid]="isInvalid(field)"
                   >
                     @if (field.key === 'category_id' && categoryOptionsLoading()) {
@@ -274,11 +273,11 @@
                 }
                 @if (isInvalid(field)) {
                   <div class="invalid-feedback">
-                    @if (form.controls[field.key].hasError('required')) {
+                    @if (form.controls[field.key]?.hasError('required')) {
                       Este campo es obligatorio.
-                    } @else if (form.controls[field.key].hasError('email')) {
+                    } @else if (form.controls[field.key]?.hasError('email')) {
                       Ingresa un correo electrónico válido.
-                    } @else if (form.controls[field.key].hasError('min')) {
+                    } @else if (form.controls[field.key]?.hasError('min')) {
                       El valor no puede ser menor que {{ field.min }}.
                     } @else {
                       Revisa el valor ingresado.

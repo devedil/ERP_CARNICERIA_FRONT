@@ -61,9 +61,8 @@ export class InventoryService {
     inventory_location_id: number;
     source_quantity: string;
     waste_quantity: string;
-    waste_cost_share: string;
     reason: string;
-    outputs: Array<{ product_id: number; quantity: string; cost_share: string }>;
+    outputs: Array<{ product_id: number; quantity: string }>;
   }): Observable<ApiItem<InventoryProcessing>> {
     return this.#api.post('inventory/processings', body);
   }

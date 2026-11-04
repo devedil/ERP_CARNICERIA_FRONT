@@ -27,17 +27,19 @@ import {
   InventoryLocation,
   InventoryMovement,
   InventoryProcessing,
+  ProductPrice,
   InventoryStock,
+  InventoryTransfer,
   InventoryValuation,
   Product
 } from '../core/models/catalog.models';
 import { InventoryService } from '../core/services/inventory.service';
 import { ProductService } from '../core/services/product.service';
+import { decimalToScaled, multiplyDecimalsToSix, scaledToDecimal, sumDecimals } from '../core/utils/decimal';
 
 type ProcessingOutputForm = FormGroup<{
   product_id: FormControl<string>;
   quantity: FormControl<string>;
-  cost_share: FormControl<string>;
 }>;
 
 @Component({
@@ -74,8 +76,11 @@ export class InventoryComponent implements OnInit {
   stocks: InventoryStock[] = [];
   movements: InventoryMovement[] = [];
   processings: InventoryProcessing[] = [];
+  transfers: InventoryTransfer[] = [];
+  readonly productPrices = new Map<number, ProductPrice[]>();
   valuation: InventoryValuation[] = [];
   loading = false;
+  productPricesLoading = false;
   saving = false;
   pageError = '';
   formError = '';
@@ -129,10 +134,6 @@ export class InventoryComponent implements OnInit {
       nonNullable: true,
       validators: [Validators.pattern(/^\d+(\.\d{1,3})?$/)]
     }),
-    waste_cost_share: new FormControl('0', {
-      nonNullable: true,
-      validators: [Validators.required, Validators.pattern(/^\d+(\.\d{1,4})?$/), Validators.max(100)]
-    }),
     reason: new FormControl('', { nonNullable: true, validators: [Validators.required, Validators.maxLength(255)] }),
     outputs: new FormArray<ProcessingOutputForm>([this.createProcessingOutput()])
   });
@@ -149,6 +150,7 @@ export class InventoryComponent implements OnInit {
       locations: this.#inventory.locations(),
       stocks: this.#inventory.stocks(this.filters(this.stockPage)),
       movements: this.#inventory.movements(this.filters(this.movementPage)),
+      transfers: this.#inventory.transfers(),
       processings: this.#inventory.processings(),
       valuation: this.#inventory.valuation(this.locationFilter ? Number(this.locationFilter) : undefined)
     })
@@ -159,6 +161,7 @@ export class InventoryComponent implements OnInit {
       .subscribe({
         next: (result) => {
           this.products = result.products.data;
+          this.loadProductPrices();
           this.locations = result.locations.data;
           this.stocks = result.stocks.data;
           this.stockPage = result.stocks.meta.current_page;
@@ -167,9 +170,31 @@ export class InventoryComponent implements OnInit {
           this.movements = result.movements.data;
           this.movementPage = result.movements.meta.current_page;
           this.movementLastPage = result.movements.meta.last_page;
+          this.transfers = result.transfers.data;
           this.processings = result.processings.data;
           this.valuation = result.valuation.data;
         },
+        error: (error: unknown) => this.pageError = getApiErrorMessage(error)
+      });
+  }
+
+  private loadProductPrices(): void {
+    this.productPrices.clear();
+    if (!this.products.length) {
+      this.productPricesLoading = false;
+      return;
+    }
+
+    this.productPricesLoading = true;
+    forkJoin(this.products.map((product) => this.#products.prices(product.id)))
+      .pipe(
+        takeUntilDestroyed(this.#destroyRef),
+        finalize(() => this.productPricesLoading = false)
+      )
+      .subscribe({
+        next: (responses) => responses.forEach((response, index) => {
+          this.productPrices.set(this.products[index].id, response.data);
+        }),
         error: (error: unknown) => this.pageError = getApiErrorMessage(error)
       });
   }
@@ -323,7 +348,6 @@ export class InventoryComponent implements OnInit {
       inventory_location_id: '',
       source_quantity: '',
       waste_quantity: '0',
-      waste_cost_share: '0',
       reason: ''
     });
     this.processingForm.controls.outputs.clear();
@@ -342,10 +366,58 @@ export class InventoryComponent implements OnInit {
   }
 
   processingShareTotal(): string {
-    const form = this.processingForm.getRawValue();
-    const total = Number(form.waste_cost_share) +
-      form.outputs.reduce((sum, output) => sum + Number(output.cost_share || 0), 0);
-    return total.toFixed(4);
+    const values = this.processingForm.getRawValue();
+    const commercialValues = values.outputs.map((output) => {
+      const price = this.retailPrice(Number(output.product_id));
+      return price ? multiplyDecimalsToSix(output.quantity, price.amount) : '0.000000';
+    });
+    const total = sumDecimals(commercialValues);
+    return total === '0.000000' ? '0.0000' : '100.0000';
+  }
+
+  outputCostShare(index: number): string {
+    const values = this.processingForm.getRawValue();
+    const price = this.retailPrice(Number(values.outputs[index]?.product_id));
+    const value = price
+      ? multiplyDecimalsToSix(values.outputs[index]?.quantity ?? '0', price.amount)
+      : '0.000000';
+    const total = sumDecimals(values.outputs.map((output) => {
+      const outputPrice = this.retailPrice(Number(output.product_id));
+      return outputPrice ? multiplyDecimalsToSix(output.quantity, outputPrice.amount) : '0.000000';
+    }));
+    if (total === '0.000000') {
+      return '0.00';
+    }
+    return (Number(value) / Number(total) * 100).toFixed(2);
+  }
+
+  physicalDifference(): string {
+    const values = this.processingForm.getRawValue();
+    const totalOutputs = sumDecimals(values.outputs.map((output) => output.quantity), 3);
+    const total = decimalToScaled(values.source_quantity || '0', 3) -
+      decimalToScaled(totalOutputs, 3) -
+      decimalToScaled(values.waste_quantity || '0', 3);
+    return scaledToDecimal(total, 3);
+  }
+
+  processingPricesReady(): boolean {
+    const outputs = this.processingForm.getRawValue().outputs;
+    return !this.productPricesLoading &&
+      outputs.length > 0 &&
+      outputs.every((output) => Boolean(this.retailPrice(Number(output.product_id))));
+  }
+
+  retailPrice(productId: number): ProductPrice | undefined {
+    return (this.productPrices.get(productId) ?? []).find((price) =>
+      price.is_active &&
+      price.unit === null &&
+      price.price_list.code === 'retail' &&
+      price.price_list.currency === 'USD'
+    );
+  }
+
+  retailPriceForValue(productId: string | undefined): ProductPrice | undefined {
+    return productId ? this.retailPrice(Number(productId)) : undefined;
   }
 
   saveProcessing(): void {
@@ -353,8 +425,12 @@ export class InventoryComponent implements OnInit {
       this.processingForm.markAllAsTouched();
       return;
     }
-    if (!this.processingSharesSumTo100()) {
-      this.formError = 'La distribución de costos entre subproductos y merma debe sumar exactamente 100%.';
+    if (this.physicalDifference() !== '0.000') {
+      this.formError = 'Los kilogramos de subproductos más merma deben coincidir exactamente con los kilogramos de origen.';
+      return;
+    }
+    if (!this.processingPricesReady()) {
+      this.formError = 'Cada subproducto debe tener un Precio Detal USD activo antes de registrar el desposte.';
       return;
     }
 
@@ -379,12 +455,10 @@ export class InventoryComponent implements OnInit {
       inventory_location_id: Number(values.inventory_location_id),
       source_quantity: values.source_quantity,
       waste_quantity: values.waste_quantity || '0',
-      waste_cost_share: values.waste_cost_share,
       reason: values.reason.trim(),
       outputs: values.outputs.map((output) => ({
         product_id: Number(output.product_id),
-        quantity: output.quantity,
-        cost_share: output.cost_share
+        quantity: output.quantity
       }))
     })
       .pipe(
@@ -429,31 +503,8 @@ export class InventoryComponent implements OnInit {
       quantity: new FormControl('', {
         nonNullable: true,
         validators: [Validators.required, Validators.pattern(/^(?=.*[1-9])\d+(\.\d{1,3})?$/)]
-      }),
-      cost_share: new FormControl('', {
-        nonNullable: true,
-        validators: [
-          Validators.required,
-          Validators.pattern(/^(?=.*[1-9])\d+(\.\d{1,4})?$/),
-          Validators.max(100)
-        ]
       })
     });
   }
 
-  private processingSharesSumTo100(): boolean {
-    const form = this.processingForm.getRawValue();
-    const shares = [form.waste_cost_share, ...form.outputs.map((output) => output.cost_share)];
-    let total = 0n;
-
-    for (const share of shares) {
-      const match = /^(\d+)(?:\.(\d{1,4}))?$/.exec(share);
-      if (!match) {
-        return false;
-      }
-      total += BigInt(match[1]) * 10_000n + BigInt((match[2] ?? '').padEnd(4, '0'));
-    }
-
-    return total === 1_000_000n;
-  }
 }

@@ -90,7 +90,7 @@ export class PurchasesComponent implements OnInit {
     supplier_id: new FormControl('', { nonNullable: true, validators: [Validators.required] }),
     inventory_location_id: new FormControl('', { nonNullable: true, validators: [Validators.required] }),
     document_number: new FormControl('', { nonNullable: true, validators: [Validators.maxLength(64)] }),
-    currency: new FormControl('VES', {
+    currency: new FormControl({ value: 'USD', disabled: true }, {
       nonNullable: true,
       validators: [Validators.required, Validators.pattern(/^[A-Z]{3}$/)]
     }),
@@ -153,7 +153,7 @@ export class PurchasesComponent implements OnInit {
       supplier_id: '',
       inventory_location_id: '',
       document_number: '',
-      currency: 'VES',
+      currency: 'USD',
       notes: ''
     });
     this.lines.clear();
@@ -187,6 +187,10 @@ export class PurchasesComponent implements OnInit {
       return;
     }
     const values = this.purchaseForm.getRawValue();
+    if (values.currency !== 'USD') {
+      this.formError = 'Las compras deben registrarse en USD.';
+      return;
+    }
     if (!values.lines.every((line) => line.product_id && line.quantity && line.unit_cost)) {
       this.formError = 'Completa producto, cantidad y costo unitario en todas las líneas.';
       return;
@@ -237,6 +241,27 @@ export class PurchasesComponent implements OnInit {
       exchange_rate: ''
     });
     this.paymentModalVisible = true;
+  }
+
+  selectedPaymentSession(): CashSession | undefined {
+    const sessionId = this.paymentForm.controls.cash_session_id.value;
+    return this.openSessions.find((session) => String(session.id) === sessionId);
+  }
+
+  paymentRequiresExchangeRate(): boolean {
+    const session = this.selectedPaymentSession();
+    return Boolean(session && this.selectedPurchase && session.currency !== this.selectedPurchase.currency);
+  }
+
+  paymentAppliedAmount(): string {
+    const amount = this.paymentForm.controls.amount.value;
+    const rate = this.paymentForm.controls.exchange_rate.value;
+    if (!amount) {
+      return '0.000000';
+    }
+    return this.paymentRequiresExchangeRate() && rate
+      ? multiplyDecimalsToSix(amount, rate)
+      : scaledToDecimal(decimalToScaled(amount, 6), 6);
   }
 
   savePayment(): void {

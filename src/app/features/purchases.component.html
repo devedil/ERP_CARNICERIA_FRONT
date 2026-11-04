@@ -115,7 +115,8 @@
             </c-col>
             <c-col md="4">
               <label cLabel for="purchase-currency">Moneda</label>
-              <input cFormControl id="purchase-currency" type="text" maxlength="3" formControlName="currency" />
+              <div class="form-control" id="purchase-currency" aria-describedby="purchase-currency-help">USD</div>
+              <div id="purchase-currency-help" class="form-text">Los costos de compra se registran en dólares estadounidenses.</div>
             </c-col>
             <c-col md="4">
               <label cLabel for="purchase-notes">Notas</label>
@@ -210,7 +211,17 @@
             </c-col>
             <c-col md="6">
               <label cLabel for="purchase-payment-rate">Tasa (moneda de compra por moneda de caja)</label>
-              <input cFormControl id="purchase-payment-rate" type="number" min="0.000001" step="0.000001" formControlName="exchange_rate" />
+              @if (paymentRequiresExchangeRate()) {
+                <input cFormControl id="purchase-payment-rate" type="number" min="0.000001" step="0.000001" formControlName="exchange_rate" />
+                <div class="form-text">Indica cuántos USD equivalen a una unidad de {{ selectedPaymentSession()?.currency }}.</div>
+              } @else {
+                <div class="form-control bg-body-secondary">No requerida: caja USD</div>
+              }
+            </c-col>
+            <c-col xs="12">
+              <div class="small text-body-secondary">
+                Se aplicarán {{ paymentAppliedAmount() }} USD al saldo de la compra.
+              </div>
             </c-col>
           </c-row>
         </c-modal-body>
