@@ -1,187 +1,155 @@
-import { Component, DestroyRef, DOCUMENT, effect, inject, OnInit, Renderer2, signal, WritableSignal } from '@angular/core';
-import { FormControl, FormGroup, ReactiveFormsModule } from '@angular/forms';
-import { ChartOptions } from 'chart.js';
+import { Component, DestroyRef, inject, OnInit, signal } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { RouterLink } from '@angular/router';
+import { ChartData, ChartOptions } from 'chart.js';
 import {
-  AvatarComponent,
-  ButtonDirective,
-  ButtonGroupComponent,
   CardBodyComponent,
   CardComponent,
-  CardFooterComponent,
   CardHeaderComponent,
   ColComponent,
-  FormCheckLabelDirective,
-  GutterDirective,
-  ProgressComponent,
-  RowComponent,
-  TableDirective
+  RowComponent
 } from '@coreui/angular';
 import { ChartjsComponent } from '@coreui/angular-chartjs';
-import { IconDirective } from '@coreui/icons-angular';
+import { getStyle } from '@coreui/utils';
+import { finalize } from 'rxjs';
 
-import { DashboardBrandComponent } from './dashboard-brand/dashboard-brand.component';
-import { WidgetsDropdownComponent } from '../widgets/widgets-dropdown/widgets-dropdown.component';
-import { DashboardChartsData, IChartProps } from './dashboard-charts-data';
+import { ApiService } from '../../core/api.service';
+import { getApiErrorMessage } from '../../core/api-error';
+import { DashboardWidgetMetric, WidgetsDropdownComponent } from '../widgets/widgets-dropdown/widgets-dropdown.component';
 
-interface IUser {
-  name: string;
-  state: string;
-  registered: string;
-  country: string;
-  usage: number;
-  period: string;
-  payment: string;
-  activity: string;
-  avatar: string;
-  status: string;
-  color: string;
+interface CurrencyAmount {
+  currency: string;
+  amount: string;
+}
+
+interface ReportSummary {
+  sales: {
+    count: number;
+    total_by_currency: CurrencyAmount[];
+    by_product: Array<{
+      product_id: number;
+      product: string | null;
+      currency: string;
+      quantity: string;
+      total: string;
+    }>;
+  };
+  purchases: { count: number; total_by_currency: CurrencyAmount[] };
+  inventory: { stock_lines: number; value_by_currency: CurrencyAmount[] };
+  accounts_receivable: { count: number; balance_by_currency: CurrencyAmount[] };
+  accounts_payable: { count: number; balance_by_currency: CurrencyAmount[] };
+}
+
+interface ApiEnvelope<T> {
+  data: T;
 }
 
 @Component({
-  templateUrl: 'dashboard.component.html',
-  styleUrls: ['dashboard.component.scss'],
-  imports: [WidgetsDropdownComponent, CardComponent, CardBodyComponent, RowComponent, ColComponent, ButtonDirective, IconDirective, ReactiveFormsModule, ButtonGroupComponent, FormCheckLabelDirective, ChartjsComponent, CardFooterComponent, GutterDirective, ProgressComponent, DashboardBrandComponent, CardHeaderComponent, TableDirective, AvatarComponent]
+  templateUrl: './dashboard.component.html',
+  imports: [
+    CardBodyComponent,
+    CardComponent,
+    CardHeaderComponent,
+    ChartjsComponent,
+    ColComponent,
+    RouterLink,
+    RowComponent,
+    WidgetsDropdownComponent
+  ]
 })
 export class DashboardComponent implements OnInit {
+  readonly #api = inject(ApiService);
+  readonly #destroyRef = inject(DestroyRef);
 
-  readonly #destroyRef: DestroyRef = inject(DestroyRef);
-  readonly #document: Document = inject(DOCUMENT);
-  readonly #renderer: Renderer2 = inject(Renderer2);
-  readonly #chartsData: DashboardChartsData = inject(DashboardChartsData);
-
-  public users: IUser[] = [
-    {
-      name: 'Yiorgos Avraamu',
-      state: 'New',
-      registered: 'Mar 15, 2025',
-      country: 'Us',
-      usage: 50,
-      period: 'Mar 1, 2026 - Apr 30, 2026',
-      payment: 'Mastercard',
-      activity: '10 sec ago',
-      avatar: './assets/images/avatars/1.jpg',
-      status: 'success',
-      color: 'success'
-    },
-    {
-      name: 'Avram Tarasios',
-      state: 'Recurring ',
-      registered: 'Aug 22, 2024',
-      country: 'Br',
-      usage: 10,
-      period: 'Jan 15, 2026 - Feb 14, 2026',
-      payment: 'Visa',
-      activity: '5 minutes ago',
-      avatar: './assets/images/avatars/2.jpg',
-      status: 'danger',
-      color: 'info'
-    },
-    {
-      name: 'Quintin Ed',
-      state: 'New',
-      registered: 'Nov 7, 2024',
-      country: 'In',
-      usage: 74,
-      period: 'Feb 10, 2026 - Mar 11, 2026',
-      payment: 'Stripe',
-      activity: '1 hour ago',
-      avatar: './assets/images/avatars/3.jpg',
-      status: 'warning',
-      color: 'warning'
-    },
-    {
-      name: 'Enéas Kwadwo',
-      state: 'Sleep',
-      registered: 'Jan 30, 2025',
-      country: 'Fr',
-      usage: 98,
-      period: 'Apr 1, 2026 - Apr 30, 2026',
-      payment: 'Paypal',
-      activity: 'Last month',
-      avatar: './assets/images/avatars/4.jpg',
-      status: 'secondary',
-      color: 'danger'
-    },
-    {
-      name: 'Agapetus Tadeáš',
-      state: 'New',
-      registered: 'Jun 12, 2024',
-      country: 'Es',
-      usage: 22,
-      period: 'Mar 20, 2026 - Apr 19, 2026',
-      payment: 'ApplePay',
-      activity: 'Last week',
-      avatar: './assets/images/avatars/5.jpg',
-      status: 'success',
-      color: 'primary'
-    },
-    {
-      name: 'Friderik Dávid',
-      state: 'New',
-      registered: 'Dec 3, 2025',
-      country: 'Pl',
-      usage: 43,
-      period: 'Apr 5, 2026 - May 4, 2026',
-      payment: 'Amex',
-      activity: 'Yesterday',
-      avatar: './assets/images/avatars/6.jpg',
-      status: 'info',
-      color: 'dark'
-    }
-  ];
-
-  public mainChart: IChartProps = { type: 'line' };
-  public mainChartRef: WritableSignal<any> = signal(undefined);
-  #mainChartRefEffect = effect(() => {
-    if (this.mainChartRef()) {
-      this.setChartStyles();
-    }
+  readonly summary = signal<ReportSummary | null>(null);
+  readonly loading = signal(true);
+  readonly errorMessage = signal('');
+  readonly widgetMetrics = signal<DashboardWidgetMetric[]>([]);
+  readonly chartData = signal<ChartData<'bar'>>({
+    labels: [],
+    datasets: [{
+      data: [],
+      label: 'Ventas',
+      backgroundColor: getStyle('--cui-primary') ?? '#321fdb'
+    }]
   });
-  public chart: Array<IChartProps> = [];
-  public trafficRadioGroup = new FormGroup({
-    trafficRadio: new FormControl('Month')
-  });
+
+  readonly chartOptions: ChartOptions<'bar'> = {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: { legend: { display: true } },
+    scales: { y: { beginAtZero: true } }
+  };
 
   ngOnInit(): void {
-    this.initCharts();
-    this.updateChartOnColorModeChange();
-  }
-
-  initCharts(): void {
-    this.mainChartRef()?.stop();
-    this.mainChart = this.#chartsData.mainChart;
-  }
-
-  setTrafficPeriod(value: string): void {
-    this.trafficRadioGroup.setValue({ trafficRadio: value });
-    this.#chartsData.initMainChart(value);
-    this.initCharts();
-  }
-
-  handleChartRef($chartRef: any) {
-    if ($chartRef) {
-      this.mainChartRef.set($chartRef);
-    }
-  }
-
-  updateChartOnColorModeChange() {
-    const unListen = this.#renderer.listen(this.#document.documentElement, 'ColorSchemeChange', () => {
-      this.setChartStyles();
-    });
-
-    this.#destroyRef.onDestroy(() => {
-      unListen();
-    });
-  }
-
-  setChartStyles() {
-    if (this.mainChartRef()) {
-      setTimeout(() => {
-        const options: ChartOptions = { ...this.mainChart.options };
-        const scales = this.#chartsData.getScales();
-        this.mainChartRef().options.scales = { ...options.scales, ...scales };
-        this.mainChartRef().update();
+    this.#api
+      .get<ApiEnvelope<ReportSummary>>('reports/summary')
+      .pipe(
+        takeUntilDestroyed(this.#destroyRef),
+        finalize(() => this.loading.set(false))
+      )
+      .subscribe({
+        next: ({ data }) => {
+          this.summary.set(data);
+          this.widgetMetrics.set([
+            this.widgetMetric(`Ventas (${data.sales.count})`, data.sales.total_by_currency, 'primary'),
+            this.widgetMetric(`Compras (${data.purchases.count})`, data.purchases.total_by_currency, 'info'),
+            this.widgetMetric('Valor del inventario', data.inventory.value_by_currency, 'success'),
+            this.widgetMetric(`Por cobrar (${data.accounts_receivable.count})`, data.accounts_receivable.balance_by_currency, 'warning')
+          ]);
+          const products = [...data.sales.by_product]
+            .sort((left, right) => Number(right.total) - Number(left.total))
+            .slice(0, 8);
+          const labels = products.map((product) =>
+            product.product ?? `Producto ${product.product_id}`
+          );
+          const currencies = [...new Set(products.map((product) => product.currency))];
+          this.chartData.set({
+            labels,
+            datasets: currencies.map((currency, index) => ({
+              data: products.map((product) =>
+                product.currency === currency ? Number(product.total) : 0
+              ),
+              label: `Ventas (${currency})`,
+              backgroundColor: [
+                getStyle('--cui-primary') ?? '#321fdb',
+                getStyle('--cui-success') ?? '#2eb85c',
+                getStyle('--cui-warning') ?? '#f9b115',
+                getStyle('--cui-danger') ?? '#e55353'
+              ][index % 4]
+            }))
+          });
+        },
+        error: (error: unknown) => this.errorMessage.set(getApiErrorMessage(error))
       });
+  }
+
+  formatAmounts(amounts: CurrencyAmount[] | undefined): string {
+    if (!amounts?.length) {
+      return '—';
     }
+
+    return amounts
+      .map(({ currency, amount }) =>
+        `${currency} ${Number(amount).toLocaleString('es-VE', {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2
+        })}`
+      )
+      .join(' · ');
+  }
+
+  private widgetMetric(
+    title: string,
+    amounts: CurrencyAmount[],
+    color: string
+  ): DashboardWidgetMetric {
+    return {
+      title,
+      value: this.formatAmounts(amounts),
+      color,
+      labels: amounts.map(({ currency }) => currency),
+      values: amounts.map(({ amount }) => Number(amount))
+    };
   }
 }

@@ -1,81 +1,25 @@
-import { AfterContentInit, AfterViewInit, ChangeDetectorRef, Component, inject, OnInit, viewChild } from '@angular/core';
+import { AfterViewInit, Component, input, viewChild } from '@angular/core';
 import { getStyle } from '@coreui/utils';
 import { ChartjsComponent } from '@coreui/angular-chartjs';
-import { RouterLink } from '@angular/router';
-import { IconDirective } from '@coreui/icons-angular';
-import {
-  ButtonDirective,
-  ColComponent,
-  DropdownComponent,
-  DropdownDividerDirective,
-  DropdownItemDirective,
-  DropdownMenuDirective,
-  DropdownToggleDirective,
-  RowComponent,
-  TemplateIdDirective,
-  WidgetStatAComponent
-} from '@coreui/angular';
+import { ColComponent, RowComponent, TemplateIdDirective, WidgetStatAComponent } from '@coreui/angular';
+import { ChartData } from 'chart.js';
+
+export interface DashboardWidgetMetric {
+  title: string;
+  value: string;
+  color: string;
+  labels: string[];
+  values: number[];
+}
 
 @Component({
   selector: 'app-widgets-dropdown',
   templateUrl: './widgets-dropdown.component.html',
-  imports: [RowComponent, ColComponent, WidgetStatAComponent, TemplateIdDirective, IconDirective, DropdownComponent, ButtonDirective, DropdownToggleDirective, DropdownMenuDirective, DropdownItemDirective, RouterLink, DropdownDividerDirective, ChartjsComponent]
+  imports: [RowComponent, ColComponent, WidgetStatAComponent, TemplateIdDirective, ChartjsComponent]
 })
-export class WidgetsDropdownComponent implements OnInit, AfterContentInit {
-  private readonly changeDetectorRef = inject(ChangeDetectorRef);
-
-  data: any[] = [];
-  options: any[] = [];
-  labels = [
-    'January',
-    'February',
-    'March',
-    'April',
-    'May',
-    'June',
-    'July',
-    'August',
-    'September',
-    'October',
-    'November',
-    'December',
-    'January',
-    'February',
-    'March',
-    'April'
-  ];
-  datasets = [
-    [{
-      label: 'My First dataset',
-      backgroundColor: 'transparent',
-      borderColor: 'rgba(255,255,255,.55)',
-      pointBackgroundColor: getStyle('--cui-primary'),
-      pointHoverBorderColor: getStyle('--cui-primary'),
-      data: [65, 59, 84, 84, 51, 55, 40]
-    }], [{
-      label: 'My Second dataset',
-      backgroundColor: 'transparent',
-      borderColor: 'rgba(255,255,255,.55)',
-      pointBackgroundColor: getStyle('--cui-info'),
-      pointHoverBorderColor: getStyle('--cui-info'),
-      data: [1, 18, 9, 17, 34, 22, 11]
-    }], [{
-      label: 'My Third dataset',
-      backgroundColor: 'rgba(255,255,255,.2)',
-      borderColor: 'rgba(255,255,255,.55)',
-      pointBackgroundColor: getStyle('--cui-warning'),
-      pointHoverBorderColor: getStyle('--cui-warning'),
-      data: [78, 81, 80, 45, 34, 12, 40],
-      fill: true
-    }], [{
-      label: 'My Fourth dataset',
-      backgroundColor: 'rgba(255,255,255,.2)',
-      borderColor: 'rgba(255,255,255,.55)',
-      data: [78, 81, 80, 45, 34, 12, 40, 85, 65, 23, 12, 98, 34, 84, 67, 82],
-      barPercentage: 0.7
-    }]
-  ];
-  optionsDefault = {
+export class WidgetsDropdownComponent {
+  readonly metrics = input<DashboardWidgetMetric[]>([]);
+  readonly options = [{
     plugins: {
       legend: {
         display: false
@@ -96,8 +40,6 @@ export class WidgetsDropdownComponent implements OnInit, AfterContentInit {
         }
       },
       y: {
-        min: 30,
-        max: 89,
         display: false,
         grid: {
           display: false
@@ -118,62 +60,22 @@ export class WidgetsDropdownComponent implements OnInit, AfterContentInit {
         hoverRadius: 4
       }
     }
-  };
+  }];
 
-  ngOnInit(): void {
-    this.setData();
+  metricChart(metric: DashboardWidgetMetric): ChartData<'line'> {
+    return {
+      labels: metric.labels,
+      datasets: [{
+        data: metric.values,
+        label: metric.title,
+        backgroundColor: 'transparent',
+        borderColor: 'rgba(255,255,255,.55)',
+        pointBackgroundColor: getStyle(`--cui-${metric.color}`) ?? '#321fdb',
+        pointHoverBorderColor: getStyle(`--cui-${metric.color}`) ?? '#321fdb'
+      }]
+    };
   }
 
-  ngAfterContentInit(): void {
-    this.changeDetectorRef.detectChanges();
-
-  }
-
-  setData() {
-    for (let idx = 0; idx < 4; idx++) {
-      this.data[idx] = {
-        labels: idx < 3 ? this.labels.slice(0, 7) : this.labels,
-        datasets: this.datasets[idx]
-      };
-    }
-    this.setOptions();
-  }
-
-  setOptions() {
-    for (let idx = 0; idx < 4; idx++) {
-      const options = JSON.parse(JSON.stringify(this.optionsDefault));
-      switch (idx) {
-        case 0: {
-          this.options.push(options);
-          break;
-        }
-        case 1: {
-          options.scales.y.min = -9;
-          options.scales.y.max = 39;
-          options.elements.line.tension = 0;
-          this.options.push(options);
-          break;
-        }
-        case 2: {
-          options.scales.x = { display: false };
-          options.scales.y = { display: false };
-          options.elements.line.borderWidth = 2;
-          options.elements.point.radius = 0;
-          this.options.push(options);
-          break;
-        }
-        case 3: {
-          options.scales.x.grid = { display: false, drawTicks: false };
-          options.scales.x.grid = { display: false, drawTicks: false, drawBorder: false };
-          options.scales.y.min = undefined;
-          options.scales.y.max = undefined;
-          options.elements = {};
-          this.options.push(options);
-          break;
-        }
-      }
-    }
-  }
 }
 
 @Component({

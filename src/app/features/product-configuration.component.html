@@ -1,0 +1,273 @@
+<c-row class="mb-4">
+  <c-col xs="12">
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-3">
+      <div>
+        <h1 class="h3 mb-1">Conversiones y precios</h1>
+        @if (product) {
+          <p class="text-body-secondary mb-0">{{ product.name }} · Unidad base: {{ product.base_unit }}</p>
+        }
+      </div>
+      <a cButton color="secondary" variant="outline" routerLink="/products">Volver a productos</a>
+    </div>
+
+    @if (successMessage) {
+      <div class="alert alert-success alert-dismissible" role="status">
+        {{ successMessage }}
+        <button type="button" class="btn-close" aria-label="Cerrar" (click)="successMessage = ''"></button>
+      </div>
+    }
+    @if (formError) {
+      <div class="alert alert-danger" role="alert">{{ formError }}</div>
+    }
+
+    @if (loading) {
+      <div class="text-center text-body-secondary py-5">Cargando información...</div>
+    } @else if (pageError) {
+      <div class="alert alert-danger" role="alert">{{ pageError }}</div>
+    } @else if (product) {
+      <c-row class="g-4">
+        <c-col xs="12">
+          <c-card>
+            <c-card-header class="d-flex flex-wrap justify-content-between align-items-center gap-3">
+              <strong>Conversiones de unidad</strong>
+              <button cButton color="primary" type="button" (click)="openConversion()">
+                Nueva conversión
+              </button>
+            </c-card-header>
+            <c-card-body>
+              @if (conversions.length === 0) {
+                <div class="text-center text-body-secondary py-4">No hay conversiones registradas.</div>
+              } @else {
+                <div class="table-responsive">
+                  <table cTable [striped]="true" [hover]="true">
+                    <thead>
+                      <tr>
+                        <th scope="col">Unidad</th>
+                        <th scope="col">Factor a unidad base</th>
+                        <th scope="col">Estado</th>
+                        <th scope="col">Acciones</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      @for (conversion of conversions; track conversion.id) {
+                        <tr>
+                          <td>{{ conversion.unit.name }} ({{ conversion.unit.code }})</td>
+                          <td>{{ conversion.factor_to_base }}</td>
+                          <td>{{ conversion.is_active ? 'Activo' : 'Inactivo' }}</td>
+                          <td class="text-nowrap">
+                            @if (conversion.is_active) {
+                              <button
+                                cButton
+                                color="primary"
+                                size="sm"
+                                variant="outline"
+                                type="button"
+                                class="me-2"
+                                (click)="openConversion(conversion)"
+                              >
+                                Editar
+                              </button>
+                              <button
+                                cButton
+                                color="danger"
+                                size="sm"
+                                variant="outline"
+                                type="button"
+                                [disabled]="actionId === conversion.id"
+                                (click)="deactivateConversion(conversion)"
+                              >
+                                {{ actionId === conversion.id ? 'Procesando...' : 'Desactivar' }}
+                              </button>
+                            }
+                          </td>
+                        </tr>
+                      }
+                    </tbody>
+                  </table>
+                </div>
+              }
+            </c-card-body>
+          </c-card>
+        </c-col>
+
+        <c-col xs="12">
+          <c-card>
+            <c-card-header class="d-flex flex-wrap justify-content-between align-items-center gap-3">
+              <strong>Precios del producto</strong>
+              <button cButton color="primary" type="button" (click)="openPrice()">
+                Agregar precio USD
+              </button>
+            </c-card-header>
+            <c-card-body>
+              @if (priceError) {
+                <div class="alert alert-danger" role="alert">
+                  No se pudieron cargar los precios: {{ priceError }}
+                </div>
+              } @else if (pricesLoading) {
+                <div class="text-center text-body-secondary py-4">Cargando precios...</div>
+              } @else if (prices.length === 0) {
+                <div class="text-center text-body-secondary py-4">No hay precios registrados.</div>
+              } @else {
+                <div class="table-responsive">
+                  <table cTable [striped]="true" [hover]="true">
+                    <thead>
+                      <tr>
+                        <th scope="col">Lista</th>
+                        <th scope="col">Unidad</th>
+                        <th scope="col">Precio</th>
+                        <th scope="col">Estado</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      @for (price of prices; track price.id) {
+                        <tr>
+                          <td>{{ price.price_list.name }}</td>
+                          <td>{{ price.unit?.name ?? product.base_unit }}</td>
+                          <td>{{ price.amount }} {{ price.price_list.currency }}</td>
+                          <td>{{ price.is_active ? 'Activo' : 'Inactivo' }}</td>
+                        </tr>
+                      }
+                    </tbody>
+                  </table>
+                </div>
+              }
+            </c-card-body>
+          </c-card>
+        </c-col>
+      </c-row>
+    }
+
+    <c-modal
+      [(visible)]="conversionModalVisible"
+      alignment="center"
+      backdrop="static"
+      [keyboard]="false"
+      size="lg"
+    >
+      <c-modal-header>
+        <h5 cModalTitle>{{ selectedConversion ? 'Editar conversión' : 'Nueva conversión' }}</h5>
+        <button cButtonClose [disabled]="saving" (click)="conversionModalVisible = false"></button>
+      </c-modal-header>
+      <form cForm [formGroup]="conversionForm" (ngSubmit)="saveConversion()">
+        <c-modal-body>
+          @if (formError) {
+            <div class="alert alert-danger" role="alert">{{ formError }}</div>
+          }
+          <c-row class="g-3">
+            <c-col md="6">
+              <label cLabel for="conversion-unit">Unidad de conversión</label>
+              <select
+                cSelect
+                id="conversion-unit"
+                formControlName="unit_id"
+                [class.is-invalid]="conversionForm.controls.unit_id.touched && conversionForm.controls.unit_id.invalid"
+              >
+                <option value="">Selecciona una unidad</option>
+                @for (unit of availableUnits; track unit.id) {
+                  <option [value]="unit.id">{{ unit.name }} ({{ unit.code }})</option>
+                }
+              </select>
+              @if (conversionForm.controls.unit_id.touched && conversionForm.controls.unit_id.invalid) {
+                <div class="invalid-feedback">Selecciona una unidad.</div>
+              }
+            </c-col>
+            <c-col md="6">
+              <label cLabel for="conversion-factor">Factor a unidad base</label>
+              <input
+                cFormControl
+                id="conversion-factor"
+                type="number"
+                formControlName="factor_to_base"
+                min="0.000001"
+                step="0.000001"
+                [class.is-invalid]="conversionForm.controls.factor_to_base.touched && conversionForm.controls.factor_to_base.invalid"
+              />
+              @if (conversionForm.controls.factor_to_base.touched && conversionForm.controls.factor_to_base.invalid) {
+                <div class="invalid-feedback">Ingresa un factor positivo con hasta 6 decimales.</div>
+              }
+            </c-col>
+          </c-row>
+        </c-modal-body>
+        <c-modal-footer>
+          <button cButton color="secondary" variant="outline" type="button" [disabled]="saving" (click)="conversionModalVisible = false">
+            Cancelar
+          </button>
+          <button cButton color="primary" type="submit" [disabled]="saving">
+            {{ saving ? 'Guardando...' : 'Guardar' }}
+          </button>
+        </c-modal-footer>
+      </form>
+    </c-modal>
+
+    <c-modal
+      [(visible)]="priceModalVisible"
+      alignment="center"
+      backdrop="static"
+      [keyboard]="false"
+      size="lg"
+    >
+      <c-modal-header>
+        <h5 cModalTitle>Agregar precio</h5>
+        <button cButtonClose [disabled]="saving" (click)="priceModalVisible = false"></button>
+      </c-modal-header>
+      <form cForm [formGroup]="priceForm" (ngSubmit)="savePrice()">
+        <c-modal-body>
+          @if (formError) {
+            <div class="alert alert-danger" role="alert">{{ formError }}</div>
+          }
+          <c-row class="g-3">
+            <c-col md="6">
+              <label cLabel for="price-list">Lista de precios</label>
+              <select
+                cSelect
+                id="price-list"
+                formControlName="price_list_id"
+                [class.is-invalid]="priceForm.controls.price_list_id.touched && priceForm.controls.price_list_id.invalid"
+              >
+                <option value="">Selecciona una lista</option>
+                @for (priceList of priceLists; track priceList.id) {
+                  <option [value]="priceList.id">{{ priceList.name }} ({{ priceList.currency }})</option>
+                }
+              </select>
+              @if (priceForm.controls.price_list_id.touched && priceForm.controls.price_list_id.invalid) {
+                <div class="invalid-feedback">Selecciona una lista de precios.</div>
+              }
+            </c-col>
+            <c-col md="6">
+              <label cLabel for="price-unit">Unidad (opcional)</label>
+              <select cSelect id="price-unit" formControlName="unit_id">
+                <option value="">Unidad base ({{ product?.base_unit }})</option>
+                @for (unit of availableUnits; track unit.id) {
+                  <option [value]="unit.id">{{ unit.name }} ({{ unit.code }})</option>
+                }
+              </select>
+            </c-col>
+            <c-col md="6">
+              <label cLabel for="price-amount">Importe en USD</label>
+              <input
+                cFormControl
+                id="price-amount"
+                type="number"
+                formControlName="amount"
+                min="0.000001"
+                step="0.000001"
+                [class.is-invalid]="priceForm.controls.amount.touched && priceForm.controls.amount.invalid"
+              />
+              @if (priceForm.controls.amount.touched && priceForm.controls.amount.invalid) {
+                <div class="invalid-feedback">Ingresa un importe positivo con hasta 6 decimales.</div>
+              }
+            </c-col>
+          </c-row>
+        </c-modal-body>
+        <c-modal-footer>
+          <button cButton color="secondary" variant="outline" type="button" [disabled]="saving" (click)="priceModalVisible = false">
+            Cancelar
+          </button>
+          <button cButton color="primary" type="submit" [disabled]="saving">
+            {{ saving ? 'Guardando...' : 'Guardar' }}
+          </button>
+        </c-modal-footer>
+      </form>
+    </c-modal>
+  </c-col>
+</c-row>

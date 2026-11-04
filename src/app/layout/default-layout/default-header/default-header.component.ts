@@ -17,7 +17,7 @@
 
 import { NgTemplateOutlet } from '@angular/common';
 import { Component, computed, inject, input, signal } from '@angular/core';
-import { RouterLink } from '@angular/router';
+import { Router, RouterLink } from '@angular/router';
 
 import {
   AvatarComponent,
@@ -47,6 +47,7 @@ import {
 } from '@coreui/angular';
 
 import { IconDirective } from '@coreui/icons-angular';
+import { AuthService } from '../../../core/auth.service';
 
 @Component({
   selector: 'app-default-header',
@@ -82,7 +83,10 @@ import { IconDirective } from '@coreui/icons-angular';
 export class DefaultHeaderComponent extends HeaderComponent {
 
   readonly #colorModeService = inject(ColorModeService);
+  readonly #authService = inject(AuthService);
+  readonly #router = inject(Router);
   readonly colorMode = this.#colorModeService.colorMode;
+  readonly logoutError = signal('');
 
   readonly colorModes = [
     { name: 'light', text: 'Light', icon: 'cilSun' },
@@ -103,4 +107,15 @@ export class DefaultHeaderComponent extends HeaderComponent {
 
   readonly searchVisible = signal(false);
 
+  userName(): string {
+    return this.#authService.user()?.name ?? 'Usuario';
+  }
+
+  logout(): void {
+    this.logoutError.set('');
+    this.#authService.logout().subscribe({
+      next: () => void this.#router.navigate(['/authentication/login']),
+      error: () => this.logoutError.set('No se pudo cerrar la sesión. Inténtalo nuevamente.')
+    });
+  }
 }

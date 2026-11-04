@@ -1,0 +1,263 @@
+<c-row class="mb-4">
+  <c-col xs="12">
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-3">
+      <div>
+        <h1 class="h3 mb-1">Caja</h1>
+        <p class="text-body-secondary mb-0">Sesiones, ingresos, egresos y cierre de caja.</p>
+      </div>
+      <div class="d-flex gap-2">
+        <button cButton color="primary" type="button" (click)="openSession()">Abrir sesión</button>
+        <button cButton color="secondary" variant="outline" type="button" (click)="load()" [disabled]="loading">
+          Actualizar
+        </button>
+      </div>
+    </div>
+
+    @if (successMessage) {
+      <div class="alert alert-success alert-dismissible" role="status">
+        {{ successMessage }}
+        <button type="button" class="btn-close" aria-label="Cerrar" (click)="successMessage = ''"></button>
+      </div>
+    }
+
+    @if (loading) {
+      <div class="text-center text-body-secondary py-5">Cargando sesiones de caja...</div>
+    } @else if (pageError) {
+      <div class="alert alert-danger" role="alert">{{ pageError }}</div>
+    } @else {
+      <c-card class="mb-4">
+        <c-card-header><strong>Sesiones de caja</strong></c-card-header>
+        <c-card-body>
+          @if (sessions.length === 0) {
+            <div class="text-center text-body-secondary py-4">No hay sesiones de caja registradas.</div>
+          } @else {
+            <div class="table-responsive">
+              <table cTable [striped]="true" [hover]="true">
+                <thead>
+                  <tr>
+                    <th scope="col">Sesión</th>
+                    <th scope="col">Caja</th>
+                    <th scope="col">Moneda</th>
+                    <th scope="col">Apertura</th>
+                    <th scope="col">Monto inicial</th>
+                    <th scope="col">Estado</th>
+                    <th scope="col">Cierre</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (session of sessions; track session.id) {
+                    <tr
+                      role="button"
+                      [class.table-active]="isSelectedSession(session.id)"
+                      (click)="selectSessionId(session.id)"
+                    >
+                      <td>#{{ session.id }}</td>
+                      <td>{{ session.register?.name ?? '—' }}</td>
+                      <td>{{ session.currency }}</td>
+                      <td>{{ session.opened_at }}</td>
+                      <td>{{ session.opening_amount }} {{ session.currency }}</td>
+                      <td>{{ session.status }}</td>
+                      <td>{{ session.closed_at ?? '—' }}</td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+          }
+        </c-card-body>
+      </c-card>
+
+      @if (selectedSession; as session) {
+        <div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-3">
+          <div>
+            <h2 class="h5 mb-1">Detalle de sesión #{{ session.id }}</h2>
+            <span class="text-body-secondary">{{ session.register?.name ?? 'Caja' }} · {{ session.currency }} · {{ session.status }}</span>
+          </div>
+          @if (session.status === 'open') {
+            <div class="d-flex gap-2">
+              <button cButton color="primary" variant="outline" type="button" (click)="openMovement()">Registrar ingreso / egreso</button>
+              <button cButton color="danger" type="button" (click)="openCloseSession()">Cerrar caja</button>
+            </div>
+          }
+        </div>
+
+        @if (summary) {
+          <c-row class="g-3 mb-4">
+            <c-col md="4">
+              <c-card>
+                <c-card-header><strong>Monto inicial</strong></c-card-header>
+                <c-card-body>{{ summary.opening_amount }} {{ summary.currency }}</c-card-body>
+              </c-card>
+            </c-col>
+            <c-col md="4">
+              <c-card>
+                <c-card-header><strong>Ingresos</strong></c-card-header>
+                <c-card-body>{{ summary.income }} {{ summary.currency }}</c-card-body>
+              </c-card>
+            </c-col>
+            <c-col md="4">
+              <c-card>
+                <c-card-header><strong>Egresos</strong></c-card-header>
+                <c-card-body>{{ summary.expense }} {{ summary.currency }}</c-card-body>
+              </c-card>
+            </c-col>
+            <c-col xs="12">
+              <c-card>
+                <c-card-header><strong>Saldo esperado en caja</strong></c-card-header>
+                <c-card-body class="h5 mb-0">{{ summary.expected_amount }} {{ summary.currency }}</c-card-body>
+              </c-card>
+            </c-col>
+          </c-row>
+        }
+
+        <c-card>
+          <c-card-header><strong>Movimientos</strong></c-card-header>
+          <c-card-body>
+            @if (movements.length === 0) {
+              <div class="text-center text-body-secondary py-4">No hay movimientos registrados para esta sesión.</div>
+            } @else {
+              <div class="table-responsive">
+                <table cTable [striped]="true" [hover]="true">
+                  <thead>
+                    <tr>
+                      <th scope="col">Fecha</th>
+                      <th scope="col">Tipo</th>
+                      <th scope="col">Categoría</th>
+                      <th scope="col">Motivo</th>
+                      <th scope="col">Importe</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    @for (movement of movements; track movement.id) {
+                      <tr>
+                        <td>{{ movement.created_at }}</td>
+                        <td>{{ movement.movement_type === 'income' ? 'Ingreso' : 'Egreso' }}</td>
+                        <td>{{ movement.expense_category?.name ?? '—' }}</td>
+                        <td>{{ movement.reason }}</td>
+                        <td>{{ movement.amount }} {{ session.currency }}</td>
+                      </tr>
+                    }
+                  </tbody>
+                </table>
+              </div>
+            }
+          </c-card-body>
+        </c-card>
+      }
+    }
+
+    <c-modal [(visible)]="openModalVisible" alignment="center" backdrop="static" [keyboard]="false" size="lg">
+      <c-modal-header>
+        <h5 cModalTitle>Abrir sesión de caja</h5>
+        <button cButtonClose [disabled]="saving" (click)="openModalVisible = false"></button>
+      </c-modal-header>
+      <form cForm [formGroup]="openForm" (ngSubmit)="saveOpenSession()">
+        <c-modal-body>
+          @if (formError) {
+            <div class="alert alert-danger" role="alert">{{ formError }}</div>
+          }
+          <div class="alert alert-info" role="note">
+            El backend aún no expone un listado de cajas registradoras. Ingresa el ID de una caja activa existente.
+          </div>
+          <c-row class="g-3">
+            <c-col md="6">
+              <label cLabel for="cash-register-id">ID de caja registradora</label>
+              <input cFormControl id="cash-register-id" type="number" min="1" step="1" formControlName="cash_register_id" />
+            </c-col>
+            <c-col md="6">
+              <label cLabel for="cash-currency">Moneda</label>
+              <input cFormControl id="cash-currency" type="text" maxlength="3" formControlName="currency" placeholder="VES" />
+            </c-col>
+            <c-col md="6">
+              <label cLabel for="cash-opening-amount">Monto inicial</label>
+              <input cFormControl id="cash-opening-amount" type="number" min="0" step="0.000001" formControlName="opening_amount" />
+            </c-col>
+            <c-col md="6">
+              <label cLabel for="cash-open-notes">Notas</label>
+              <input cFormControl id="cash-open-notes" type="text" maxlength="2000" formControlName="notes" />
+            </c-col>
+          </c-row>
+        </c-modal-body>
+        <c-modal-footer>
+          <button cButton color="secondary" variant="outline" type="button" [disabled]="saving" (click)="openModalVisible = false">Cancelar</button>
+          <button cButton color="primary" type="submit" [disabled]="saving">{{ saving ? 'Procesando...' : 'Abrir sesión' }}</button>
+        </c-modal-footer>
+      </form>
+    </c-modal>
+
+    <c-modal [(visible)]="movementModalVisible" alignment="center" backdrop="static" [keyboard]="false" size="lg">
+      <c-modal-header>
+        <h5 cModalTitle>Registrar movimiento de caja</h5>
+        <button cButtonClose [disabled]="saving" (click)="movementModalVisible = false"></button>
+      </c-modal-header>
+      <form cForm [formGroup]="movementForm" (ngSubmit)="saveMovement()">
+        <c-modal-body>
+          @if (formError) {
+            <div class="alert alert-danger" role="alert">{{ formError }}</div>
+          }
+          <c-row class="g-3">
+            <c-col md="6">
+              <label cLabel for="cash-movement-type">Tipo</label>
+              <select cSelect id="cash-movement-type" formControlName="movement_type">
+                <option value="income">Ingreso</option>
+                <option value="expense">Egreso</option>
+              </select>
+            </c-col>
+            <c-col md="6">
+              <label cLabel for="cash-movement-amount">Importe ({{ selectedSession?.currency }})</label>
+              <input cFormControl id="cash-movement-amount" type="number" min="0.000001" step="0.000001" formControlName="amount" />
+            </c-col>
+            @if (movementForm.controls.movement_type.value === 'expense') {
+              <c-col xs="12">
+                <label cLabel for="cash-expense-category">Categoría del egreso</label>
+                <select cSelect id="cash-expense-category" formControlName="expense_category_id">
+                  <option value="">Selecciona una categoría</option>
+                  @for (category of expenseCategories; track category.id) {
+                    <option [value]="category.id">{{ category.name }}</option>
+                  }
+                </select>
+              </c-col>
+            }
+            <c-col xs="12">
+              <label cLabel for="cash-movement-reason">Motivo</label>
+              <input cFormControl id="cash-movement-reason" type="text" maxlength="255" formControlName="reason" />
+            </c-col>
+          </c-row>
+        </c-modal-body>
+        <c-modal-footer>
+          <button cButton color="secondary" variant="outline" type="button" [disabled]="saving" (click)="movementModalVisible = false">Cancelar</button>
+          <button cButton color="primary" type="submit" [disabled]="saving">{{ saving ? 'Procesando...' : 'Guardar movimiento' }}</button>
+        </c-modal-footer>
+      </form>
+    </c-modal>
+
+    <c-modal [(visible)]="closeModalVisible" alignment="center" backdrop="static" [keyboard]="false" size="lg">
+      <c-modal-header>
+        <h5 cModalTitle>Cerrar sesión de caja</h5>
+        <button cButtonClose [disabled]="saving" (click)="closeModalVisible = false"></button>
+      </c-modal-header>
+      <form cForm [formGroup]="closeForm" (ngSubmit)="saveCloseSession()">
+        <c-modal-body>
+          @if (formError) {
+            <div class="alert alert-danger" role="alert">{{ formError }}</div>
+          }
+          <p>Saldo esperado: <strong>{{ summary?.expected_amount }} {{ summary?.currency }}</strong></p>
+          <c-row class="g-3">
+            <c-col md="6">
+              <label cLabel for="cash-closing-amount">Monto contado al cierre</label>
+              <input cFormControl id="cash-closing-amount" type="number" min="0" step="0.000001" formControlName="closing_amount" />
+            </c-col>
+            <c-col md="6">
+              <label cLabel for="cash-close-notes">Notas de cierre</label>
+              <input cFormControl id="cash-close-notes" type="text" maxlength="2000" formControlName="notes" />
+            </c-col>
+          </c-row>
+        </c-modal-body>
+        <c-modal-footer>
+          <button cButton color="secondary" variant="outline" type="button" [disabled]="saving" (click)="closeModalVisible = false">Cancelar</button>
+          <button cButton color="danger" type="submit" [disabled]="saving">{{ saving ? 'Procesando...' : 'Confirmar cierre' }}</button>
+        </c-modal-footer>
+      </form>
+    </c-modal>
+  </c-col>
+</c-row>

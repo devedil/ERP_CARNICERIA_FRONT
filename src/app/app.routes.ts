@@ -1,4 +1,6 @@
 import { Routes } from '@angular/router';
+import { authGuard } from './core/auth.guard';
+import { erpModules } from './features/erp-module.config';
 
 export const routes: Routes = [
   {
@@ -9,6 +11,7 @@ export const routes: Routes = [
   {
     path: '',
     loadComponent: () => import('./layout').then(m => m.DefaultLayoutComponent),
+    canActivateChild: [authGuard],
     data: {
       title: 'Home'
     },
@@ -36,7 +39,37 @@ export const routes: Routes = [
       {
         path: 'charts',
         loadChildren: () => import('./views/charts/routes').then((m) => m.routes)
-      }
+      },
+      {
+        path: 'products/:productId/configuration',
+        loadComponent: () => import('./features/product-configuration.component').then((m) => m.ProductConfigurationComponent),
+        data: { title: 'Conversiones y precios' }
+      },
+      {
+        path: 'inventory',
+        loadComponent: () => import('./features/inventory.component').then((m) => m.InventoryComponent),
+        data: { title: 'Inventario' }
+      },
+      {
+        path: 'sales',
+        loadComponent: () => import('./features/sales.component').then((m) => m.SalesComponent),
+        data: { title: 'Ventas' }
+      },
+      {
+        path: 'purchases',
+        loadComponent: () => import('./features/purchases.component').then((m) => m.PurchasesComponent),
+        data: { title: 'Compras' }
+      },
+      {
+        path: 'cash',
+        loadComponent: () => import('./features/cash.component').then((m) => m.CashComponent),
+        data: { title: 'Caja' }
+      },
+      ...Object.entries(erpModules).map(([path, module]) => ({
+        path,
+        loadComponent: () => import('./features/erp-module.component').then((m) => m.ErpModuleComponent),
+        data: { title: module.title, module }
+      }))
     ]
   },
   {

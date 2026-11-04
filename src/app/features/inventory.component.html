@@ -1,0 +1,471 @@
+<c-row class="mb-4">
+  <c-col xs="12">
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-3">
+      <div>
+        <h1 class="h3 mb-1">Inventario</h1>
+        <p class="text-body-secondary mb-0">Existencias, movimientos y valorización por almacén.</p>
+      </div>
+      <div class="d-flex flex-wrap gap-2">
+        <button cButton color="primary" variant="outline" type="button" (click)="openAdjustment()">
+          Ajustar inventario
+        </button>
+        <button cButton color="primary" variant="outline" type="button" (click)="openProcessing()">
+          Registrar desposte
+        </button>
+        <button cButton color="primary" type="button" (click)="openTransfer()">
+          Transferir
+        </button>
+        <button cButton color="secondary" variant="outline" type="button" (click)="load()" [disabled]="loading">
+          Actualizar
+        </button>
+      </div>
+    </div>
+
+    @if (successMessage) {
+      <div class="alert alert-success alert-dismissible" role="status">
+        {{ successMessage }}
+        <button type="button" class="btn-close" aria-label="Cerrar" (click)="successMessage = ''"></button>
+      </div>
+    }
+
+    <c-card class="mb-4">
+      <c-card-header><strong>Filtros</strong></c-card-header>
+      <c-card-body>
+        <c-row class="g-3 align-items-end">
+          <c-col md="4">
+            <label cLabel for="inventory-product-filter">Producto</label>
+            <select cSelect id="inventory-product-filter" [value]="productFilter" (change)="setProductFilter($event)">
+              <option value="">Todos los productos</option>
+              @for (product of products; track product.id) {
+                <option [value]="product.id">{{ product.name }}</option>
+              }
+            </select>
+          </c-col>
+          <c-col md="4">
+            <label cLabel for="inventory-location-filter">Almacén</label>
+            <select cSelect id="inventory-location-filter" [value]="locationFilter" (change)="setLocationFilter($event)">
+              <option value="">Todos los almacenes</option>
+              @for (location of locations; track location.id) {
+                <option [value]="location.id">{{ location.name }}</option>
+              }
+            </select>
+          </c-col>
+          <c-col md="2">
+            <div class="form-check">
+              <input
+                cFormControl
+                class="form-check-input"
+                id="inventory-low-stock"
+                type="checkbox"
+                [checked]="lowStockOnly"
+                (change)="setLowStockOnly($event)"
+              />
+              <label class="form-check-label" for="inventory-low-stock">Bajo stock</label>
+            </div>
+          </c-col>
+          <c-col md="2">
+            <button cButton color="primary" type="button" class="w-100" (click)="applyFilters()">
+              Aplicar
+            </button>
+          </c-col>
+        </c-row>
+      </c-card-body>
+    </c-card>
+
+    @if (loading) {
+      <div class="text-center text-body-secondary py-5">Cargando información...</div>
+    } @else if (pageError) {
+      <div class="alert alert-danger" role="alert">{{ pageError }}</div>
+    } @else {
+      <c-row class="g-4 mb-4">
+        <c-col xs="12">
+          <c-card>
+            <c-card-header><strong>Valorización del inventario</strong></c-card-header>
+            <c-card-body>
+              @if (valuation.length === 0) {
+                <div class="text-center text-body-secondary py-3">No hay existencias valorizadas para los filtros seleccionados.</div>
+              } @else {
+                <div class="table-responsive">
+                  <table cTable [striped]="true">
+                    <thead>
+                      <tr>
+                        <th scope="col">Moneda</th>
+                        <th scope="col">Valor del inventario</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      @for (total of valuation; track total.currency) {
+                        <tr>
+                          <td>{{ total.currency }}</td>
+                          <td>{{ total.value }} {{ total.currency }}</td>
+                        </tr>
+                      }
+                    </tbody>
+                  </table>
+                </div>
+              }
+            </c-card-body>
+          </c-card>
+        </c-col>
+
+        <c-col xs="12">
+          <c-card>
+            <c-card-header><strong>Existencias por almacén</strong></c-card-header>
+            <c-card-body>
+              @if (stocks.length === 0) {
+                <div class="text-center text-body-secondary py-4">No hay existencias para los filtros seleccionados.</div>
+              } @else {
+                <div class="table-responsive">
+                  <table cTable [striped]="true" [hover]="true">
+                    <thead>
+                      <tr>
+                        <th scope="col">Producto</th>
+                        <th scope="col">Almacén</th>
+                        <th scope="col">Existencia</th>
+                        <th scope="col">Costo promedio</th>
+                        <th scope="col">Valorización</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      @for (stock of stocks; track stock.id) {
+                        <tr>
+                          <td>
+                            {{ stock.product.name }}
+                            @if (isLowStock(stock)) {
+                              <span class="badge text-bg-warning ms-2">Bajo stock</span>
+                            }
+                          </td>
+                          <td>{{ stock.location.name }}</td>
+                          <td>{{ stock.quantity }} {{ stock.product.base_unit }}</td>
+                          <td>{{ stock.average_cost }} {{ stock.cost_currency ?? '' }}</td>
+                          <td>{{ stock.inventory_value }} {{ stock.cost_currency ?? '' }}</td>
+                        </tr>
+                      }
+                    </tbody>
+                  </table>
+                </div>
+              }
+              <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
+                <small class="text-body-secondary">{{ stockTotal }} registros · Página {{ stockPage }} de {{ stockLastPage }}</small>
+                <div class="d-flex gap-2">
+                  <button cButton color="secondary" variant="outline" type="button" [disabled]="stockPage <= 1 || loading" (click)="changeStockPage(stockPage - 1)">
+                    Anterior
+                  </button>
+                  <button cButton color="secondary" variant="outline" type="button" [disabled]="stockPage >= stockLastPage || loading" (click)="changeStockPage(stockPage + 1)">
+                    Siguiente
+                  </button>
+                </div>
+              </div>
+            </c-card-body>
+          </c-card>
+        </c-col>
+
+        <c-col xs="12">
+          <c-card>
+            <c-card-header><strong>Historial de movimientos</strong></c-card-header>
+            <c-card-body>
+              @if (movements.length === 0) {
+                <div class="text-center text-body-secondary py-4">No hay movimientos para los filtros seleccionados.</div>
+              } @else {
+                <div class="table-responsive">
+                  <table cTable [striped]="true" [hover]="true">
+                    <thead>
+                      <tr>
+                        <th scope="col">Fecha</th>
+                        <th scope="col">Producto</th>
+                        <th scope="col">Almacén</th>
+                        <th scope="col">Tipo</th>
+                        <th scope="col">Cantidad</th>
+                        <th scope="col">Existencia resultante</th>
+                        <th scope="col">Motivo</th>
+                        <th scope="col">Costo</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      @for (movement of movements; track movement.id) {
+                        <tr>
+                          <td>{{ movement.created_at }}</td>
+                          <td>{{ productName(movement.product_id) }}</td>
+                          <td>{{ locationName(movement.location_id) }}</td>
+                          <td>{{ movement.movement_type }}</td>
+                          <td>{{ movement.quantity }}</td>
+                          <td>{{ movement.quantity_after }}</td>
+                          <td>{{ movement.reason }}</td>
+                          <td>{{ movement.total_cost ?? '—' }} {{ movement.cost_currency ?? '' }}</td>
+                        </tr>
+                      }
+                    </tbody>
+                  </table>
+                </div>
+              }
+              <div class="d-flex flex-wrap justify-content-end align-items-center gap-2">
+                <small class="text-body-secondary">Página {{ movementPage }} de {{ movementLastPage }}</small>
+                <button cButton color="secondary" variant="outline" type="button" [disabled]="movementPage <= 1 || loading" (click)="changeMovementPage(movementPage - 1)">
+                  Anterior
+                </button>
+                <button cButton color="secondary" variant="outline" type="button" [disabled]="movementPage >= movementLastPage || loading" (click)="changeMovementPage(movementPage + 1)">
+                  Siguiente
+                </button>
+              </div>
+            </c-card-body>
+          </c-card>
+        </c-col>
+      </c-row>
+
+      <c-card class="mb-4">
+        <c-card-header><strong>Historial de desposte</strong></c-card-header>
+        <c-card-body>
+          @if (processings.length === 0) {
+            <div class="text-center text-body-secondary py-4">No hay procesos de desposte registrados.</div>
+          } @else {
+            <div class="table-responsive">
+              <table cTable [striped]="true" [hover]="true">
+                <thead>
+                  <tr>
+                    <th scope="col">Fecha</th>
+                    <th scope="col">Producto de origen</th>
+                    <th scope="col">Cantidad de origen</th>
+                    <th scope="col">Almacén</th>
+                    <th scope="col">Subproductos</th>
+                    <th scope="col">Merma</th>
+                    <th scope="col">Costo total</th>
+                    <th scope="col">Estado</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (processing of processings; track processing.id) {
+                    <tr>
+                      <td>{{ processing.created_at }}</td>
+                      <td>{{ productName(processing.source_product_id) }}</td>
+                      <td>{{ processing.source_quantity }}</td>
+                      <td>{{ locationName(processing.inventory_location_id) }}</td>
+                      <td>{{ processing.outputs.length }}</td>
+                      <td>{{ processing.waste_quantity }} ({{ processing.waste_cost_share }}%)</td>
+                      <td>{{ processing.total_cost }} {{ processing.cost_currency ?? '' }}</td>
+                      <td>{{ processing.status }}</td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+          }
+        </c-card-body>
+      </c-card>
+    }
+
+    <c-modal [(visible)]="adjustmentModalVisible" alignment="center" backdrop="static" [keyboard]="false" size="lg">
+      <c-modal-header>
+        <h5 cModalTitle>Ajustar inventario</h5>
+        <button cButtonClose [disabled]="saving" (click)="adjustmentModalVisible = false"></button>
+      </c-modal-header>
+      <form cForm [formGroup]="adjustmentForm" (ngSubmit)="saveAdjustment()">
+        <c-modal-body>
+          @if (formError) {
+            <div class="alert alert-danger" role="alert">{{ formError }}</div>
+          }
+          <c-row class="g-3">
+            <c-col md="6">
+              <label cLabel for="adjustment-product">Producto</label>
+              <select cSelect id="adjustment-product" formControlName="product_id">
+                <option value="">Selecciona un producto</option>
+                @for (product of products; track product.id) {
+                  <option [value]="product.id">{{ product.name }} ({{ product.base_unit }})</option>
+                }
+              </select>
+            </c-col>
+            <c-col md="6">
+              <label cLabel for="adjustment-location">Almacén</label>
+              <select cSelect id="adjustment-location" formControlName="inventory_location_id">
+                <option value="">Selecciona un almacén</option>
+                @for (location of locations; track location.id) {
+                  <option [value]="location.id">{{ location.name }}</option>
+                }
+              </select>
+            </c-col>
+            <c-col md="6">
+              <label cLabel for="adjustment-quantity">Cantidad (negativa para salida)</label>
+              <input cFormControl id="adjustment-quantity" type="number" step="0.001" formControlName="quantity" />
+              @if (adjustmentForm.controls.quantity.touched && adjustmentForm.controls.quantity.invalid) {
+                <div class="text-danger small mt-1">Ingresa una cantidad distinta de cero, con hasta 3 decimales.</div>
+              }
+            </c-col>
+            <c-col md="6">
+              <label cLabel for="adjustment-reason">Motivo</label>
+              <input cFormControl id="adjustment-reason" type="text" maxlength="255" formControlName="reason" />
+            </c-col>
+            <c-col md="6">
+              <label cLabel for="adjustment-unit-cost">Costo unitario (opcional)</label>
+              <input cFormControl id="adjustment-unit-cost" type="number" min="0" step="0.000001" formControlName="unit_cost" />
+            </c-col>
+            <c-col md="6">
+              <label cLabel for="adjustment-currency">Moneda del costo (opcional)</label>
+              <input cFormControl id="adjustment-currency" type="text" maxlength="3" formControlName="cost_currency" placeholder="USD" />
+            </c-col>
+          </c-row>
+        </c-modal-body>
+        <c-modal-footer>
+          <button cButton color="secondary" variant="outline" type="button" [disabled]="saving" (click)="adjustmentModalVisible = false">Cancelar</button>
+          <button cButton color="primary" type="submit" [disabled]="saving">{{ saving ? 'Procesando...' : 'Aplicar ajuste' }}</button>
+        </c-modal-footer>
+      </form>
+    </c-modal>
+
+    <c-modal [(visible)]="transferModalVisible" alignment="center" backdrop="static" [keyboard]="false" size="lg">
+      <c-modal-header>
+        <h5 cModalTitle>Transferir inventario</h5>
+        <button cButtonClose [disabled]="saving" (click)="transferModalVisible = false"></button>
+      </c-modal-header>
+      <form cForm [formGroup]="transferForm" (ngSubmit)="saveTransfer()">
+        <c-modal-body>
+          @if (formError) {
+            <div class="alert alert-danger" role="alert">{{ formError }}</div>
+          }
+          <c-row class="g-3">
+            <c-col md="6">
+              <label cLabel for="transfer-product">Producto</label>
+              <select cSelect id="transfer-product" formControlName="product_id">
+                <option value="">Selecciona un producto</option>
+                @for (product of products; track product.id) {
+                  <option [value]="product.id">{{ product.name }} ({{ product.base_unit }})</option>
+                }
+              </select>
+            </c-col>
+            <c-col md="6">
+              <label cLabel for="transfer-quantity">Cantidad</label>
+              <input cFormControl id="transfer-quantity" type="number" min="0.001" step="0.001" formControlName="quantity" />
+              @if (transferForm.controls.quantity.touched && transferForm.controls.quantity.invalid) {
+                <div class="text-danger small mt-1">Ingresa una cantidad positiva, con hasta 3 decimales.</div>
+              }
+            </c-col>
+            <c-col md="6">
+              <label cLabel for="transfer-source">Almacén de origen</label>
+              <select cSelect id="transfer-source" formControlName="source_location_id">
+                <option value="">Selecciona el origen</option>
+                @for (location of locations; track location.id) {
+                  <option [value]="location.id">{{ location.name }}</option>
+                }
+              </select>
+            </c-col>
+            <c-col md="6">
+              <label cLabel for="transfer-destination">Almacén de destino</label>
+              <select cSelect id="transfer-destination" formControlName="destination_location_id">
+                <option value="">Selecciona el destino</option>
+                @for (location of locations; track location.id) {
+                  <option [value]="location.id">{{ location.name }}</option>
+                }
+              </select>
+            </c-col>
+            <c-col xs="12">
+              <label cLabel for="transfer-reason">Motivo</label>
+              <input cFormControl id="transfer-reason" type="text" maxlength="255" formControlName="reason" />
+            </c-col>
+          </c-row>
+        </c-modal-body>
+        <c-modal-footer>
+          <button cButton color="secondary" variant="outline" type="button" [disabled]="saving" (click)="transferModalVisible = false">Cancelar</button>
+          <button cButton color="primary" type="submit" [disabled]="saving">{{ saving ? 'Procesando...' : 'Confirmar transferencia' }}</button>
+        </c-modal-footer>
+      </form>
+    </c-modal>
+
+    <c-modal [(visible)]="processingModalVisible" alignment="center" backdrop="static" [keyboard]="false" size="xl">
+      <c-modal-header>
+        <h5 cModalTitle>Registrar desposte</h5>
+        <button cButtonClose [disabled]="saving" (click)="processingModalVisible = false"></button>
+      </c-modal-header>
+      <form cForm [formGroup]="processingForm" (ngSubmit)="saveProcessing()">
+        <c-modal-body>
+          @if (formError) {
+            <div class="alert alert-danger" role="alert">{{ formError }}</div>
+          }
+          <c-row class="g-3 mb-3">
+            <c-col md="6">
+              <label cLabel for="processing-source-product">Producto de origen</label>
+              <select cSelect id="processing-source-product" formControlName="source_product_id">
+                <option value="">Selecciona el producto de origen</option>
+                @for (product of products; track product.id) {
+                  <option [value]="product.id">{{ product.name }} ({{ product.base_unit }})</option>
+                }
+              </select>
+            </c-col>
+            <c-col md="6">
+              <label cLabel for="processing-location">Almacén</label>
+              <select cSelect id="processing-location" formControlName="inventory_location_id">
+                <option value="">Selecciona un almacén</option>
+                @for (location of locations; track location.id) {
+                  <option [value]="location.id">{{ location.name }}</option>
+                }
+              </select>
+            </c-col>
+            <c-col md="4">
+              <label cLabel for="processing-quantity">Cantidad de origen</label>
+              <input cFormControl id="processing-quantity" type="number" min="0.001" step="0.001" formControlName="source_quantity" />
+            </c-col>
+            <c-col md="4">
+              <label cLabel for="processing-waste-quantity">Cantidad de merma</label>
+              <input cFormControl id="processing-waste-quantity" type="number" min="0" step="0.001" formControlName="waste_quantity" />
+            </c-col>
+            <c-col md="4">
+              <label cLabel for="processing-waste-share">Porcentaje del costo asignado a merma</label>
+              <input cFormControl id="processing-waste-share" type="number" min="0" max="100" step="0.0001" formControlName="waste_cost_share" />
+            </c-col>
+            <c-col xs="12">
+              <label cLabel for="processing-reason">Motivo</label>
+              <input cFormControl id="processing-reason" type="text" maxlength="255" formControlName="reason" />
+            </c-col>
+          </c-row>
+
+          <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
+            <strong>Subproductos</strong>
+            <button cButton color="primary" variant="outline" size="sm" type="button" (click)="addProcessingOutput()">
+              Agregar subproducto
+            </button>
+          </div>
+          <div formArrayName="outputs">
+            @for (output of processingForm.controls.outputs.controls; track $index; let index = $index) {
+              <c-row class="g-2 align-items-end mb-3" [formGroupName]="index">
+                <c-col md="4">
+                  <label cLabel [for]="'processing-output-product-' + index">Producto</label>
+                  <select cSelect [id]="'processing-output-product-' + index" formControlName="product_id">
+                    <option value="">Selecciona un producto</option>
+                    @for (product of products; track product.id) {
+                      <option [value]="product.id">{{ product.name }} ({{ product.base_unit }})</option>
+                    }
+                  </select>
+                </c-col>
+                <c-col md="3">
+                  <label cLabel [for]="'processing-output-quantity-' + index">Cantidad</label>
+                  <input cFormControl [id]="'processing-output-quantity-' + index" type="number" min="0.001" step="0.001" formControlName="quantity" />
+                </c-col>
+                <c-col md="3">
+                  <label cLabel [for]="'processing-output-share-' + index">Porcentaje de costo</label>
+                  <input cFormControl [id]="'processing-output-share-' + index" type="number" min="0.0001" max="100" step="0.0001" formControlName="cost_share" />
+                </c-col>
+                <c-col md="2">
+                  <button
+                    cButton
+                    color="danger"
+                    variant="outline"
+                    type="button"
+                    class="w-100"
+                    [disabled]="processingForm.controls.outputs.length <= 1"
+                    (click)="removeProcessingOutput(index)"
+                  >
+                    Quitar
+                  </button>
+                </c-col>
+              </c-row>
+            }
+          </div>
+          <div class="small" [class.text-success]="processingShareTotal() === '100.0000'" [class.text-danger]="processingShareTotal() !== '100.0000'">
+            Distribución de costos: {{ processingShareTotal() }}% (debe sumar 100% incluyendo merma).
+          </div>
+        </c-modal-body>
+        <c-modal-footer>
+          <button cButton color="secondary" variant="outline" type="button" [disabled]="saving" (click)="processingModalVisible = false">Cancelar</button>
+          <button cButton color="primary" type="submit" [disabled]="saving">{{ saving ? 'Procesando...' : 'Confirmar desposte' }}</button>
+        </c-modal-footer>
+      </form>
+    </c-modal>
+  </c-col>
+</c-row>

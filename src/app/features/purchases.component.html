@@ -1,0 +1,224 @@
+<c-row class="mb-4">
+  <c-col xs="12">
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-3">
+      <div>
+        <h1 class="h3 mb-1">Compras</h1>
+        <p class="text-body-secondary mb-0">Recepción de productos y pagos a proveedores.</p>
+      </div>
+      <div class="d-flex gap-2">
+        <button cButton color="primary" type="button" (click)="openPurchase()">Registrar compra</button>
+        <button cButton color="secondary" variant="outline" type="button" (click)="load()" [disabled]="loading">
+          Actualizar
+        </button>
+      </div>
+    </div>
+
+    @if (successMessage) {
+      <div class="alert alert-success alert-dismissible" role="status">
+        {{ successMessage }}
+        <button type="button" class="btn-close" aria-label="Cerrar" (click)="successMessage = ''"></button>
+      </div>
+    }
+    @if (loading) {
+      <div class="text-center text-body-secondary py-5">Cargando compras...</div>
+    } @else if (pageError) {
+      <div class="alert alert-danger" role="alert">{{ pageError }}</div>
+    } @else {
+      <c-card>
+        <c-card-header><strong>Compras registradas</strong></c-card-header>
+        <c-card-body>
+          @if (purchases.length === 0) {
+            <div class="text-center text-body-secondary py-5">No hay compras registradas.</div>
+          } @else {
+            <div class="table-responsive">
+              <table cTable [striped]="true" [hover]="true">
+                <thead>
+                  <tr>
+                    <th scope="col">Comprobante</th>
+                    <th scope="col">Fecha</th>
+                    <th scope="col">Proveedor</th>
+                    <th scope="col">Almacén</th>
+                    <th scope="col">Total</th>
+                    <th scope="col">Pendiente</th>
+                    <th scope="col">Estado</th>
+                    <th scope="col">Acciones</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (purchase of purchases; track purchase.id) {
+                    <tr>
+                      <td>{{ purchase.document_number || ('Compra #' + purchase.id) }}</td>
+                      <td>{{ purchase.received_at }}</td>
+                      <td>{{ purchase.supplier.name }}</td>
+                      <td>{{ purchase.location.name }}</td>
+                      <td>{{ purchase.total }} {{ purchase.currency }}</td>
+                      <td>{{ remaining(purchase) }} {{ purchase.currency }}</td>
+                      <td>{{ purchase.status }}</td>
+                      <td>
+                        @if (remaining(purchase) !== '0.000000') {
+                          <button cButton color="primary" size="sm" variant="outline" type="button" (click)="openPayment(purchase)">
+                            Registrar pago
+                          </button>
+                        } @else {
+                          <span class="text-body-secondary">Pagada</span>
+                        }
+                      </td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+          }
+          <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
+            <small class="text-body-secondary">{{ total }} compras · Página {{ page }} de {{ lastPage }}</small>
+            <div class="d-flex gap-2">
+              <button cButton color="secondary" variant="outline" type="button" [disabled]="page <= 1 || loading" (click)="load(page - 1)">Anterior</button>
+              <button cButton color="secondary" variant="outline" type="button" [disabled]="page >= lastPage || loading" (click)="load(page + 1)">Siguiente</button>
+            </div>
+          </div>
+        </c-card-body>
+      </c-card>
+    }
+
+    <c-modal [(visible)]="purchaseModalVisible" alignment="center" backdrop="static" [keyboard]="false" size="xl">
+      <c-modal-header>
+        <h5 cModalTitle>Registrar compra y recibir inventario</h5>
+        <button cButtonClose [disabled]="saving" (click)="purchaseModalVisible = false"></button>
+      </c-modal-header>
+      <form cForm [formGroup]="purchaseForm" (ngSubmit)="savePurchase()">
+        <c-modal-body>
+          @if (formError) {
+            <div class="alert alert-danger" role="alert">{{ formError }}</div>
+          }
+          <c-row class="g-3 mb-4">
+            <c-col md="6">
+              <label cLabel for="purchase-supplier">Proveedor</label>
+              <select cSelect id="purchase-supplier" formControlName="supplier_id">
+                <option value="">Selecciona un proveedor</option>
+                @for (supplier of suppliers; track supplier.id) {
+                  <option [value]="supplier.id">{{ supplier.name }}</option>
+                }
+              </select>
+            </c-col>
+            <c-col md="6">
+              <label cLabel for="purchase-location">Almacén de recepción</label>
+              <select cSelect id="purchase-location" formControlName="inventory_location_id">
+                <option value="">Selecciona un almacén</option>
+                @for (location of locations; track location.id) {
+                  <option [value]="location.id">{{ location.name }}</option>
+                }
+              </select>
+            </c-col>
+            <c-col md="4">
+              <label cLabel for="purchase-document">Número de comprobante</label>
+              <input cFormControl id="purchase-document" type="text" maxlength="64" formControlName="document_number" />
+            </c-col>
+            <c-col md="4">
+              <label cLabel for="purchase-currency">Moneda</label>
+              <input cFormControl id="purchase-currency" type="text" maxlength="3" formControlName="currency" />
+            </c-col>
+            <c-col md="4">
+              <label cLabel for="purchase-notes">Notas</label>
+              <input cFormControl id="purchase-notes" type="text" maxlength="2000" formControlName="notes" />
+            </c-col>
+          </c-row>
+
+          <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
+            <strong>Productos recibidos</strong>
+            <button cButton color="primary" variant="outline" size="sm" type="button" (click)="addLine()">Agregar producto</button>
+          </div>
+          <div formArrayName="lines">
+            @for (line of lines.controls; track $index; let index = $index) {
+              <c-row class="g-2 align-items-end mb-3" [formGroupName]="index">
+                <c-col md="5">
+                  <label cLabel [for]="'purchase-product-' + index">Producto</label>
+                  <select cSelect [id]="'purchase-product-' + index" formControlName="product_id">
+                    <option value="">Selecciona un producto</option>
+                    @for (product of products; track product.id) {
+                      <option [value]="product.id">{{ product.name }} ({{ product.base_unit }})</option>
+                    }
+                  </select>
+                </c-col>
+                <c-col md="2">
+                  <label cLabel [for]="'purchase-quantity-' + index">Cantidad</label>
+                  <input cFormControl [id]="'purchase-quantity-' + index" type="number" min="0.001" step="0.001" formControlName="quantity" />
+                </c-col>
+                <c-col md="2">
+                  <label cLabel [for]="'purchase-cost-' + index">Costo unitario</label>
+                  <input cFormControl [id]="'purchase-cost-' + index" type="number" min="0.000001" step="0.000001" formControlName="unit_cost" />
+                </c-col>
+                <c-col md="2">
+                  <label cLabel>Subtotal</label>
+                  <div class="form-control bg-body-secondary">{{ lineTotal(line) }} {{ purchaseForm.controls.currency.value }}</div>
+                </c-col>
+                <c-col md="1">
+                  <button cButton color="danger" variant="outline" type="button" class="w-100" [disabled]="lines.length <= 1" (click)="removeLine(index)">×</button>
+                </c-col>
+              </c-row>
+            }
+          </div>
+          <div class="d-flex justify-content-end mt-3">
+            <strong class="h5 mb-0">Total estimado: {{ estimatedTotal() }} {{ purchaseForm.controls.currency.value }}</strong>
+          </div>
+          <p class="text-body-secondary small mt-2 mb-0">
+            La recepción actualiza las existencias. Los pagos al proveedor se registran después de crear la compra.
+          </p>
+        </c-modal-body>
+        <c-modal-footer>
+          <button cButton color="secondary" variant="outline" type="button" [disabled]="saving" (click)="purchaseModalVisible = false">Cancelar</button>
+          <button cButton color="primary" type="submit" [disabled]="saving">{{ saving ? 'Procesando...' : 'Recibir compra' }}</button>
+        </c-modal-footer>
+      </form>
+    </c-modal>
+
+    <c-modal [(visible)]="paymentModalVisible" alignment="center" backdrop="static" [keyboard]="false" size="lg">
+      <c-modal-header>
+        <h5 cModalTitle>Registrar pago al proveedor</h5>
+        <button cButtonClose [disabled]="saving" (click)="paymentModalVisible = false"></button>
+      </c-modal-header>
+      <form cForm [formGroup]="paymentForm" (ngSubmit)="savePayment()">
+        <c-modal-body>
+          @if (formError) {
+            <div class="alert alert-danger" role="alert">{{ formError }}</div>
+          }
+          @if (selectedPurchase) {
+            <p>Saldo pendiente: <strong>{{ remaining(selectedPurchase) }} {{ selectedPurchase.currency }}</strong></p>
+          }
+          <c-row class="g-3">
+            <c-col md="6">
+              <label cLabel for="purchase-payment-session">Sesión de caja abierta</label>
+              <select cSelect id="purchase-payment-session" formControlName="cash_session_id">
+                <option value="">Selecciona una sesión abierta</option>
+                @for (session of openSessions; track session.id) {
+                  <option [value]="session.id">Caja {{ session.register?.name ?? ('#' + session.id) }} · {{ session.currency }}</option>
+                }
+              </select>
+            </c-col>
+            <c-col md="6">
+              <label cLabel for="purchase-payment-amount">Importe pagado (moneda de caja)</label>
+              <input cFormControl id="purchase-payment-amount" type="number" min="0.000001" step="0.000001" formControlName="amount" />
+            </c-col>
+            <c-col md="6">
+              <label cLabel for="purchase-payment-method">Método de pago</label>
+              <select cSelect id="purchase-payment-method" formControlName="payment_method">
+                <option value="cash">Efectivo</option>
+                <option value="card">Tarjeta</option>
+                <option value="transfer">Transferencia</option>
+                <option value="mobile_payment">Pago móvil</option>
+                <option value="other">Otro</option>
+              </select>
+            </c-col>
+            <c-col md="6">
+              <label cLabel for="purchase-payment-rate">Tasa (moneda de compra por moneda de caja)</label>
+              <input cFormControl id="purchase-payment-rate" type="number" min="0.000001" step="0.000001" formControlName="exchange_rate" />
+            </c-col>
+          </c-row>
+        </c-modal-body>
+        <c-modal-footer>
+          <button cButton color="secondary" variant="outline" type="button" [disabled]="saving" (click)="paymentModalVisible = false">Cancelar</button>
+          <button cButton color="primary" type="submit" [disabled]="saving">{{ saving ? 'Procesando...' : 'Registrar pago' }}</button>
+        </c-modal-footer>
+      </form>
+    </c-modal>
+  </c-col>
+</c-row>

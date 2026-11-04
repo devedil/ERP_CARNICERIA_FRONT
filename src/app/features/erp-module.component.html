@@ -1,0 +1,310 @@
+@if (config(); as module) {
+  <c-row class="mb-4">
+    <c-col xs="12">
+      <div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-3">
+        <div>
+          <h1 class="h3 mb-1">{{ module.title }}</h1>
+          <p class="text-body-secondary mb-0">{{ module.description }}</p>
+        </div>
+        <div class="d-flex flex-wrap gap-2">
+          @if (manageable) {
+            <button
+              cButton
+              color="primary"
+              type="button"
+              [disabled]="config()?.endpoint === 'products' && (categoryOptionsLoading() || !categoryOptionsLoaded() || productPriceListsLoading() || !productPriceLists().length)"
+              (click)="newRecord()"
+            >
+              Nuevo {{ module.singular }}
+            </button>
+            <button
+              cButton
+              color="secondary"
+              variant="outline"
+              type="button"
+              (click)="toggleInactive()"
+            >
+              {{ showInactive() ? 'Ver activos' : 'Ver inactivos' }}
+            </button>
+          }
+          <button cButton color="primary" variant="outline" type="button" (click)="load()">
+            Actualizar
+          </button>
+        </div>
+      </div>
+
+      @if (successMessage()) {
+        <div class="alert alert-success alert-dismissible" role="status">
+          {{ successMessage() }}
+          <button type="button" class="btn-close" aria-label="Cerrar" (click)="successMessage.set('')"></button>
+        </div>
+      }
+      @if (categoryOptionsError() && module.endpoint === 'products') {
+        <div class="alert alert-danger alert-dismissible" role="alert">
+          No se pudieron cargar las categorías: {{ categoryOptionsError() }}
+          <button
+            cButton
+            color="primary"
+            size="sm"
+            variant="outline"
+            type="button"
+            class="ms-2"
+            [disabled]="categoryOptionsLoading()"
+            (click)="loadCategoryOptions(module)"
+          >
+            Reintentar
+          </button>
+        </div>
+      }
+      @if (productPriceListsError() && module.endpoint === 'products') {
+        <div class="alert alert-danger alert-dismissible" role="alert">
+          No se pueden capturar precios: {{ productPriceListsError() }}
+          <button
+            cButton
+            color="primary"
+            size="sm"
+            variant="outline"
+            type="button"
+            class="ms-2"
+            [disabled]="productPriceListsLoading()"
+            (click)="loadProductPriceLists()"
+          >
+            Reintentar
+          </button>
+        </div>
+      }
+
+      <c-card>
+        <c-card-header class="d-flex flex-wrap justify-content-between align-items-center gap-3">
+          <strong>{{ module.title }}</strong>
+          @if (module.supportsSearch || module.paginated === false) {
+            <form cForm class="d-flex gap-2" (ngSubmit)="search()">
+              <input
+                cFormControl
+                class="form-control"
+                type="search"
+                [value]="searchTerm()"
+                (input)="onSearchInput($event)"
+                [placeholder]="module.supportsSearch ? 'Buscar' : 'Filtrar resultados'"
+                [attr.aria-label]="'Buscar en ' + module.title"
+              />
+              <button cButton color="primary" type="submit">Buscar</button>
+            </form>
+          }
+        </c-card-header>
+        <c-card-body>
+          @if (loading()) {
+            <div class="text-center text-body-secondary py-5">Cargando información...</div>
+          } @else if (errorMessage()) {
+            <div class="alert alert-danger mb-0" role="alert">{{ errorMessage() }}</div>
+          } @else if (visibleRows().length === 0) {
+            <div class="text-center text-body-secondary py-5">
+              No hay registros para mostrar.
+            </div>
+          } @else {
+            <div class="table-responsive">
+              <table [striped]="true" [hover]="true" cTable>
+                <thead>
+                  <tr>
+                    @for (column of module.columns; track column.key) {
+                      <th scope="col">{{ column.label }}</th>
+                    }
+                    @if (manageable) {
+                      <th scope="col">Acciones</th>
+                    }
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (row of visibleRows(); track row['id']) {
+                    <tr>
+                      @for (column of module.columns; track column.key) {
+                        <td>{{ cellValue(row, column) }}</td>
+                      }
+                      @if (manageable) {
+                        <td class="text-nowrap">
+                          @if (config()?.endpoint === 'products') {
+                            <a
+                              cButton
+                              color="info"
+                              size="sm"
+                              variant="outline"
+                              class="me-2"
+                              [routerLink]="['/products', row['id'], 'configuration']"
+                            >
+                              Conversiones y precios
+                            </a>
+                          }
+                          @if (module.canEdit !== false) {
+                            <button
+                              cButton
+                              color="primary"
+                              size="sm"
+                              variant="outline"
+                              type="button"
+                              class="me-2"
+                              (click)="editRecord(row)"
+                            >
+                              Editar
+                            </button>
+                          }
+                          @if (row['is_active'] === true || module.canActivate !== false) {
+                            <button
+                              cButton
+                              [color]="row['is_active'] === true ? 'danger' : 'success'"
+                              size="sm"
+                              variant="outline"
+                              type="button"
+                              [disabled]="actionId() === row['id']"
+                              (click)="setActive(row)"
+                            >
+                              {{ actionId() === row['id'] ? 'Procesando...' : row['is_active'] === true ? 'Desactivar' : 'Activar' }}
+                            </button>
+                          }
+                        </td>
+                      }
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+            <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
+              <small class="text-body-secondary">
+                {{ total() }} registros · Página {{ currentPage() }} de {{ lastPage() }}
+              </small>
+              <div class="d-flex gap-2">
+                <button
+                  cButton
+                  color="secondary"
+                  variant="outline"
+                  type="button"
+                  [disabled]="currentPage() <= 1 || loading()"
+                  (click)="previousPage()"
+                >
+                  Anterior
+                </button>
+                <button
+                  cButton
+                  color="secondary"
+                  variant="outline"
+                  type="button"
+                  [disabled]="currentPage() >= lastPage() || loading()"
+                  (click)="nextPage()"
+                >
+                  Siguiente
+                </button>
+              </div>
+            </div>
+          }
+        </c-card-body>
+      </c-card>
+    </c-col>
+  </c-row>
+
+  @if (manageable) {
+    <c-modal
+      [(visible)]="formVisible"
+      alignment="center"
+      backdrop="static"
+      [keyboard]="false"
+      size="lg"
+    >
+      <c-modal-header>
+        <h5 cModalTitle>
+          {{ selectedRow() ? 'Editar ' + module.singular : 'Nuevo ' + module.singular }}
+        </h5>
+        <button cButtonClose [disabled]="saving()" (click)="formVisible.set(false)"></button>
+      </c-modal-header>
+      <form cForm [formGroup]="form" (ngSubmit)="saveRecord()">
+        <c-modal-body>
+          @if (formError()) {
+            <div class="alert alert-danger" role="alert">{{ formError() }}</div>
+          }
+          @if (!selectedRow() && module.endpoint === 'products') {
+            <div class="alert alert-info" role="status">
+              Ingresa los precios base en USD para las listas Detal y Mayorista.
+            </div>
+          }
+          <c-row class="g-3">
+            @for (field of formFields; track field.key) {
+              <c-col [md]="field.type === 'textarea' ? 12 : 6">
+                <label cLabel [for]="'field-' + field.key">
+                  {{ field.label }}
+                  @if (field.required) {
+                    <span class="text-danger" aria-hidden="true">*</span>
+                  }
+                </label>
+                @if (field.type === 'select') {
+                  <select
+                    cSelect
+                    [id]="'field-' + field.key"
+                    [formControlName]="field.key"
+                    [disabled]="field.key === 'category_id' && categoryOptionsLoading()"
+                    [class.is-invalid]="isInvalid(field)"
+                  >
+                    @if (field.key === 'category_id' && categoryOptionsLoading()) {
+                      <option value="">Cargando categorías...</option>
+                    } @else if (field.key === 'category_id' && !categoryOptionsLoaded()) {
+                      <option value="">No hay categorías disponibles</option>
+                    }
+                    @for (option of fieldOptions(field); track option.value) {
+                      <option [value]="option.value">{{ option.label }}</option>
+                    }
+                  </select>
+                } @else if (field.type === 'textarea') {
+                  <textarea
+                    cFormControl
+                    [id]="'field-' + field.key"
+                    [formControlName]="field.key"
+                    [maxlength]="field.maxLength ?? null"
+                    rows="3"
+                    [class.is-invalid]="isInvalid(field)"
+                  ></textarea>
+                } @else {
+                  <input
+                    cFormControl
+                    [id]="'field-' + field.key"
+                    [type]="field.type ?? 'text'"
+                    [formControlName]="field.key"
+                    [maxlength]="field.maxLength ?? null"
+                    [min]="field.min ?? null"
+                    [pattern]="field.pattern ?? ''"
+                    [step]="field.step ?? null"
+                    [class.is-invalid]="isInvalid(field)"
+                  />
+                }
+                @if (isInvalid(field)) {
+                  <div class="invalid-feedback">
+                    @if (form.controls[field.key].hasError('required')) {
+                      Este campo es obligatorio.
+                    } @else if (form.controls[field.key].hasError('email')) {
+                      Ingresa un correo electrónico válido.
+                    } @else if (form.controls[field.key].hasError('min')) {
+                      El valor no puede ser menor que {{ field.min }}.
+                    } @else {
+                      Revisa el valor ingresado.
+                    }
+                  </div>
+                }
+              </c-col>
+            }
+          </c-row>
+        </c-modal-body>
+        <c-modal-footer>
+          <button
+            cButton
+            color="secondary"
+            variant="outline"
+            type="button"
+            [disabled]="saving()"
+            (click)="formVisible.set(false)"
+          >
+            Cancelar
+          </button>
+          <button cButton color="primary" type="submit" [disabled]="saving()">
+            {{ saving() ? 'Guardando...' : 'Guardar' }}
+          </button>
+        </c-modal-footer>
+      </form>
+    </c-modal>
+  }
+}

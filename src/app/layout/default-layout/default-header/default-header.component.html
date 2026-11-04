@@ -120,7 +120,7 @@
           cDropdownHeader
           class="bg-body-secondary text-body-secondary fw-semibold py-2 rounded-top"
         >
-          Account
+          {{ userName() }}
         </h6>
       </li>
       <li>
@@ -196,10 +196,15 @@
         </a>
       </li>
       <li>
-        <a cDropdownItem routerLink="">
+        @if (logoutError()) {
+          <div class="px-3 py-2 small text-danger" role="alert">{{ logoutError() }}</div>
+        }
+      </li>
+      <li>
+        <button cDropdownItem type="button" (click)="logout()">
           <svg cIcon class="me-2" name="cilAccountLogout"></svg>
-          Logout
-        </a>
+          Cerrar sesión
+        </button>
       </li>
     </ul>
   </c-dropdown>
