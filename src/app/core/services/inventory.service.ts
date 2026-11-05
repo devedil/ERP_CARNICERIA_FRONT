@@ -7,6 +7,7 @@ import {
   ApiCollection,
   ApiItem,
   InventoryLocation,
+  InventoryItem,
   InventoryMovement,
   InventoryProcessing,
   InventoryStock,
@@ -48,6 +49,13 @@ export class InventoryService {
     return this.#api.get('inventory/locations');
   }
 
+  items(productId?: number, locationId?: number): Observable<PaginatedCollection<InventoryItem>> {
+    let params = new HttpParams().set('per_page', '100');
+    if (productId) params = params.set('product_id', String(productId));
+    if (locationId) params = params.set('inventory_location_id', String(locationId));
+    return this.#api.get('inventory/items', params);
+  }
+
   transfers(): Observable<PaginatedCollection<InventoryTransfer>> {
     return this.#api.get('inventory/transfers');
   }
@@ -58,6 +66,7 @@ export class InventoryService {
 
   process(body: {
     source_product_id: number;
+    source_inventory_item_id?: number;
     inventory_location_id: number;
     source_quantity: string;
     waste_quantity: string;

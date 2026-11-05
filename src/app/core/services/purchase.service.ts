@@ -26,7 +26,12 @@ export class PurchaseService {
     document_number: string | null;
     currency: 'USD';
     notes: string | null;
-    lines: Array<{ product_id: number; quantity: string; unit_cost: string }>;
+    lines: Array<{
+      product_id: number;
+      quantity: string;
+      unit_cost: string;
+      units?: Array<{ weight: string }>;
+    }>;
   }): Observable<ApiItem<Purchase>> {
     return this.#api.post('purchases', body);
   }

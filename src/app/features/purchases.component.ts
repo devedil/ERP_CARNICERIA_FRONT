@@ -34,7 +34,8 @@ import { decimalToScaled, multiplyDecimalsToSix, scaledToDecimal, sumDecimals } 
 
 type PurchaseLineForm = FormGroup<{
   product_id: FormControl<string>;
-  quantity: FormControl<string>;
+  animal_count: FormControl<string>;
+  weights: FormControl<string>;
   unit_cost: FormControl<string>;
 }>;
 
@@ -172,9 +173,18 @@ export class PurchasesComponent implements OnInit {
   }
 
   lineTotal(line: PurchaseLineForm): string {
-    const quantity = line.controls.quantity.value;
+    const quantity = this.lineQuantity(line);
     const unitCost = line.controls.unit_cost.value;
     return quantity && unitCost ? multiplyDecimalsToSix(quantity, unitCost) : '0.000000';
+  }
+
+  lineQuantity(line: PurchaseLineForm): string {
+    const weights = this.parseWeights(line.controls.weights.value);
+    return weights.length > 0 ? sumDecimals(weights, 3) : line.controls.animal_count.value;
+  }
+
+  parseWeights(value: string): string[] {
+    return value.split(',').map((weight) => weight.trim()).filter(Boolean);
   }
 
   estimatedTotal(): string {
@@ -191,9 +201,20 @@ export class PurchasesComponent implements OnInit {
       this.formError = 'Las compras deben registrarse en USD.';
       return;
     }
-    if (!values.lines.every((line) => line.product_id && line.quantity && line.unit_cost)) {
+    if (!values.lines.every((line) => line.product_id && line.animal_count && line.unit_cost)) {
       this.formError = 'Completa producto, cantidad y costo unitario en todas las líneas.';
       return;
+    }
+    for (const line of this.lines.controls) {
+      const weights = this.parseWeights(line.controls.weights.value);
+      if (weights.length > 0 && weights.length !== Number(line.controls.animal_count.value)) {
+        this.formError = 'La cantidad de reses debe coincidir con la cantidad de pesos ingresados.';
+        return;
+      }
+      if (weights.some((weight) => !/^(?=.*[1-9])\d+(\.\d{1,3})?$/.test(weight))) {
+        this.formError = 'Cada peso debe ser válido y tener hasta tres decimales.';
+        return;
+      }
     }
     if (new Set(values.lines.map((line) => line.product_id)).size !== values.lines.length) {
       this.formError = 'Cada producto solo puede aparecer una vez en la compra.';
@@ -211,10 +232,13 @@ export class PurchasesComponent implements OnInit {
       document_number: values.document_number.trim() || null,
       currency: values.currency,
       notes: values.notes.trim() || null,
-      lines: values.lines.map((line) => ({
+      lines: values.lines.map((line, index) => ({
         product_id: Number(line.product_id),
-        quantity: line.quantity,
-        unit_cost: line.unit_cost
+        quantity: this.lineQuantity(this.lines.controls[index]),
+        unit_cost: line.unit_cost,
+        ...(this.parseWeights(line.weights).length > 0
+          ? { units: this.parseWeights(line.weights).map((weight) => ({ weight })) }
+          : {})
       }))
     })
       .pipe(
@@ -315,9 +339,12 @@ export class PurchasesComponent implements OnInit {
   private createLine(): PurchaseLineForm {
     return new FormGroup({
       product_id: new FormControl('', { nonNullable: true, validators: [Validators.required] }),
-      quantity: new FormControl('', {
+      animal_count: new FormControl('', {
         nonNullable: true,
-        validators: [Validators.required, Validators.pattern(/^(?=.*[1-9])\d+(\.\d{1,3})?$/)]
+        validators: [Validators.required, Validators.pattern(/^(?=.*[1-9])\d+$/)]
+      }),
+      weights: new FormControl('', {
+        nonNullable: true
       }),
       unit_cost: new FormControl('', {
         nonNullable: true,

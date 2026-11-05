@@ -302,6 +302,15 @@
             <div class="alert alert-danger" role="alert">{{ formError }}</div>
           }
           <c-row class="g-3">
+            <c-col xs="12">
+              <label cLabel for="processing-source-item">Res disponible para desposte</label>
+              <select cSelect id="processing-source-item" formControlName="source_inventory_item_id" (change)="selectProcessingItem()">
+                <option value="">Selecciona la res que deseas despostar</option>
+                @for (item of inventoryItems; track item.id) {
+                  <option [value]="item.id">{{ item.identifier }} · {{ item.product.name }} · {{ item.remaining_weight }} kg · {{ item.location.name }}</option>
+                }
+              </select>
+            </c-col>
             <c-col md="6">
               <label cLabel for="adjustment-product">Producto</label>
               <select cSelect id="adjustment-product" formControlName="product_id">
@@ -436,8 +445,8 @@
               </select>
             </c-col>
             <c-col md="4">
-              <label cLabel for="processing-quantity">Cantidad de origen</label>
-              <input cFormControl id="processing-quantity" type="number" min="0.001" step="0.001" formControlName="source_quantity" />
+              <label cLabel for="processing-quantity">Peso de la res seleccionada (kg)</label>
+              <input cFormControl id="processing-quantity" type="number" min="0.001" step="0.001" formControlName="source_quantity" readonly />
             </c-col>
             <c-col md="4">
               <label cLabel for="processing-waste-quantity">Cantidad de merma</label>

@@ -28,6 +28,7 @@ import {
   InventoryMovement,
   InventoryProcessing,
   ProductPrice,
+  InventoryItem,
   InventoryStock,
   InventoryTransfer,
   InventoryValuation,
@@ -77,6 +78,7 @@ export class InventoryComponent implements OnInit {
   movements: InventoryMovement[] = [];
   processings: InventoryProcessing[] = [];
   transfers: InventoryTransfer[] = [];
+  inventoryItems: InventoryItem[] = [];
   readonly productPrices = new Map<number, ProductPrice[]>();
   valuation: InventoryValuation[] = [];
   loading = false;
@@ -124,6 +126,7 @@ export class InventoryComponent implements OnInit {
     reason: new FormControl('', { nonNullable: true, validators: [Validators.required, Validators.maxLength(255)] })
   });
   readonly processingForm = new FormGroup({
+    source_inventory_item_id: new FormControl('', { nonNullable: true, validators: [Validators.required] }),
     source_product_id: new FormControl('', { nonNullable: true, validators: [Validators.required] }),
     inventory_location_id: new FormControl('', { nonNullable: true, validators: [Validators.required] }),
     source_quantity: new FormControl('', {
@@ -151,6 +154,7 @@ export class InventoryComponent implements OnInit {
       stocks: this.#inventory.stocks(this.filters(this.stockPage)),
       movements: this.#inventory.movements(this.filters(this.movementPage)),
       transfers: this.#inventory.transfers(),
+      items: this.#inventory.items(),
       processings: this.#inventory.processings(),
       valuation: this.#inventory.valuation(this.locationFilter ? Number(this.locationFilter) : undefined)
     })
@@ -171,6 +175,7 @@ export class InventoryComponent implements OnInit {
           this.movementPage = result.movements.meta.current_page;
           this.movementLastPage = result.movements.meta.last_page;
           this.transfers = result.transfers.data;
+          this.inventoryItems = result.items.data;
           this.processings = result.processings.data;
           this.valuation = result.valuation.data;
         },
@@ -343,8 +348,12 @@ export class InventoryComponent implements OnInit {
 
   openProcessing(): void {
     this.formError = '';
+    this.processingForm.controls.source_product_id.enable();
+    this.processingForm.controls.inventory_location_id.enable();
+    this.processingForm.controls.source_quantity.enable();
     this.processingForm.reset({
       source_product_id: '',
+      source_inventory_item_id: '',
       inventory_location_id: '',
       source_quantity: '',
       waste_quantity: '0',
@@ -353,6 +362,23 @@ export class InventoryComponent implements OnInit {
     this.processingForm.controls.outputs.clear();
     this.processingForm.controls.outputs.push(this.createProcessingOutput());
     this.processingModalVisible = true;
+  }
+
+  selectProcessingItem(): void {
+    const item = this.inventoryItems.find((candidate) =>
+      String(candidate.id) === this.processingForm.controls.source_inventory_item_id.value
+    );
+    if (!item) {
+      return;
+    }
+    this.processingForm.patchValue({
+      source_product_id: String(item.product.id),
+      inventory_location_id: String(item.location.id),
+      source_quantity: item.remaining_weight
+    });
+    this.processingForm.controls.source_product_id.disable();
+    this.processingForm.controls.inventory_location_id.disable();
+    this.processingForm.controls.source_quantity.disable();
   }
 
   addProcessingOutput(): void {
@@ -452,6 +478,7 @@ export class InventoryComponent implements OnInit {
     this.formError = '';
     this.#inventory.process({
       source_product_id: Number(values.source_product_id),
+      source_inventory_item_id: Number(values.source_inventory_item_id),
       inventory_location_id: Number(values.inventory_location_id),
       source_quantity: values.source_quantity,
       waste_quantity: values.waste_quantity || '0',

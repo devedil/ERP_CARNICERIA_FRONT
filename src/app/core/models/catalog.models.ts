@@ -75,6 +75,20 @@ export interface InventoryStock {
   inventory_value: string;
 }
 
+export interface InventoryItem {
+  id: number;
+  identifier: string;
+  product: Pick<Product, 'id' | 'name' | 'base_unit'>;
+  location: Pick<InventoryLocation, 'id' | 'code' | 'name'>;
+  weight: string;
+  remaining_weight: string;
+  unit_cost: string;
+  total_cost: string;
+  cost_currency: string;
+  status: string;
+  processed_at: string | null;
+}
+
 export interface InventoryMovement {
   id: number;
   product_id: number;
@@ -114,6 +128,7 @@ export interface InventoryProcessingOutput {
 export interface InventoryProcessing {
   id: number;
   source_product_id: number;
+  source_inventory_item_id: number | null;
   inventory_location_id: number;
   source_quantity: string;
   waste_quantity: string;
@@ -174,6 +189,7 @@ export interface Sale {
 export interface PurchaseLine {
   id: number;
   product: Pick<Product, 'id' | 'name' | 'base_unit'>;
+  animal_count: number | null;
   quantity: string;
   unit_cost: string;
   line_total: string;
