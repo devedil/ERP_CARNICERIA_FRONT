@@ -1,4 +1,4 @@
-import { Component, DestroyRef, inject, OnInit } from '@angular/core';
+import { ChangeDetectorRef, Component, DestroyRef, inject, OnInit } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormArray, FormControl, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
 import {
@@ -23,7 +23,14 @@ import {
 import { finalize, forkJoin } from 'rxjs';
 
 import { getApiErrorMessage } from '../core/api-error';
-import { CashSession, InventoryLocation, Product, Purchase, Supplier } from '../core/models/catalog.models';
+import {
+  CashSession,
+  InventoryLocation,
+  Product,
+  ProductUnitConversion,
+  Purchase,
+  Supplier
+} from '../core/models/catalog.models';
 import { CashService } from '../core/services/cash.service';
 import { InventoryService } from '../core/services/inventory.service';
 import { ProductService } from '../core/services/product.service';
@@ -34,6 +41,9 @@ import { decimalToScaled, multiplyDecimalsToSix, scaledToDecimal, sumDecimals } 
 
 type PurchaseLineForm = FormGroup<{
   product_id: FormControl<string>;
+  reception_mode: FormControl<'animal' | 'standard' | 'conversion'>;
+  conversion_id: FormControl<string>;
+  quantity: FormControl<string>;
   animal_count: FormControl<string>;
   weights: FormControl<string>;
   unit_cost: FormControl<string>;
@@ -70,6 +80,7 @@ export class PurchasesComponent implements OnInit {
   readonly #productsApi = inject(ProductService);
   readonly #inventoryApi = inject(InventoryService);
   readonly #cashApi = inject(CashService);
+  readonly #changeDetector = inject(ChangeDetectorRef);
 
   purchases: Purchase[] = [];
   suppliers: Supplier[] = [];
@@ -86,6 +97,7 @@ export class PurchasesComponent implements OnInit {
   successMessage = '';
   purchaseModalVisible = false;
   paymentModalVisible = false;
+  readonly lineConversions = new Map<PurchaseLineForm, ProductUnitConversion[]>();
   selectedPurchase: Purchase | null = null;
   readonly purchaseForm = new FormGroup({
     supplier_id: new FormControl('', { nonNullable: true, validators: [Validators.required] }),
@@ -112,6 +124,9 @@ export class PurchasesComponent implements OnInit {
   });
 
   ngOnInit(): void {
+    this.purchaseForm.valueChanges
+      .pipe(takeUntilDestroyed(this.#destroyRef))
+      .subscribe(() => this.#changeDetector.markForCheck());
     this.load();
   }
 
@@ -168,52 +183,178 @@ export class PurchasesComponent implements OnInit {
 
   removeLine(index: number): void {
     if (this.lines.length > 1) {
+      this.lineConversions.delete(this.lines.at(index));
       this.lines.removeAt(index);
     }
   }
 
   lineTotal(line: PurchaseLineForm): string {
-    const quantity = this.lineQuantity(line);
-    const unitCost = line.controls.unit_cost.value;
+    const quantity = line.controls.reception_mode.value === 'animal'
+      ? this.lineQuantity(line)
+      : this.normalizeDecimal(line.controls.quantity.value, 3);
+    const unitCost = line.controls.unit_cost.value.trim();
     return quantity && unitCost ? multiplyDecimalsToSix(quantity, unitCost) : '0.000000';
   }
 
   lineQuantity(line: PurchaseLineForm): string {
+    if (line.controls.reception_mode.value !== 'animal') {
+      const quantity = this.normalizeDecimal(line.controls.quantity.value, 3);
+      if (line.controls.reception_mode.value === 'conversion') {
+        const conversion = this.selectedConversion(line);
+        return conversion
+          ? this.normalizeDecimal(multiplyDecimalsToSix(quantity, conversion.factor_to_base), 3)
+          : '0.000';
+      }
+      return quantity || '0.000';
+    }
     const weights = this.parseWeights(line.controls.weights.value);
-    return weights.length > 0 ? sumDecimals(weights, 3) : line.controls.animal_count.value;
+    return weights.length > 0 ? sumDecimals(weights, 3) : '0.000';
+  }
+
+  lineUnitLabel(line: PurchaseLineForm): string {
+    const product = this.products.find((item) => String(item.id) === line.controls.product_id.value);
+    if (line.controls.reception_mode.value === 'animal') {
+      return 'USD/kg';
+    }
+    if (line.controls.reception_mode.value === 'conversion') {
+      return `USD/${this.selectedConversion(line)?.unit.name ?? 'presentación'}`;
+    }
+    return product ? `USD/${product.base_unit}` : 'USD/unidad';
+  }
+
+  productBaseUnit(line: PurchaseLineForm): string {
+    return this.products.find((product) => String(product.id) === line.controls.product_id.value)?.base_unit ?? 'unidad';
+  }
+
+  conversionsFor(line: PurchaseLineForm): ProductUnitConversion[] {
+    return this.lineConversions.get(line) ?? [];
   }
 
   parseWeights(value: string): string[] {
-    return value.split(',').map((weight) => weight.trim()).filter(Boolean);
+    return value
+      .split(/[,\n;]+/)
+      .map((weight) => weight.trim().replace(',', '.'))
+      .filter(Boolean);
+  }
+
+  invalidPurchaseFields(): string {
+    const invalid: string[] = [];
+    if (this.purchaseForm.controls.supplier_id.invalid) invalid.push('proveedor');
+    if (this.purchaseForm.controls.inventory_location_id.invalid) invalid.push('almacén');
+    this.lines.controls.forEach((line, index) => {
+      if (line.controls.product_id.invalid) invalid.push(`producto línea ${index + 1}`);
+      if (line.controls.animal_count.invalid) invalid.push(`cantidad línea ${index + 1}`);
+      if (line.controls.weights.invalid) invalid.push(`peso línea ${index + 1}`);
+      if (line.controls.unit_cost.invalid) invalid.push(`costo línea ${index + 1}`);
+    });
+    return invalid.join(', ');
   }
 
   estimatedTotal(): string {
     return sumDecimals(this.lines.controls.map((line) => this.lineTotal(line)));
   }
 
+  refreshPurchaseCalculations(): void {
+    this.purchaseForm.updateValueAndValidity({ emitEvent: false });
+    this.#changeDetector.markForCheck();
+  }
+
+  captureLineValue(
+    line: PurchaseLineForm,
+    control: 'animal_count' | 'weights' | 'quantity' | 'unit_cost',
+    event: Event
+  ): void {
+    const value = (event.target as HTMLInputElement).value;
+    line.controls[control].setValue(value, { emitEvent: true });
+    this.refreshPurchaseCalculations();
+  }
+
+  captureProductValue(line: PurchaseLineForm, event: Event): void {
+    const productId = (event.target as HTMLSelectElement).value;
+    line.controls.product_id.setValue(productId, { emitEvent: true });
+    line.controls.reception_mode.setValue(
+      this.isAnimalProduct(productId) ? 'animal' : 'standard',
+      { emitEvent: true }
+    );
+    line.controls.conversion_id.reset('', { emitEvent: false });
+    this.lineConversions.set(line, []);
+    if (productId) {
+      this.#productsApi.conversions(Number(productId))
+        .pipe(takeUntilDestroyed(this.#destroyRef))
+        .subscribe({
+          next: ({ data }) => {
+            this.lineConversions.set(line, data);
+            this.#changeDetector.markForCheck();
+          },
+          error: () => {
+            this.lineConversions.set(line, []);
+            this.#changeDetector.markForCheck();
+          }
+        });
+    }
+    this.refreshPurchaseCalculations();
+  }
+
+  captureModeValue(line: PurchaseLineForm, event: Event): void {
+    const mode = (event.target as HTMLSelectElement).value as 'animal' | 'standard' | 'conversion';
+    line.controls.reception_mode.setValue(mode, { emitEvent: true });
+    if (mode !== 'conversion') {
+      line.controls.conversion_id.reset('', { emitEvent: false });
+    }
+    this.refreshPurchaseCalculations();
+  }
+
+  captureConversionValue(line: PurchaseLineForm, event: Event): void {
+    line.controls.conversion_id.setValue((event.target as HTMLSelectElement).value, { emitEvent: true });
+    this.refreshPurchaseCalculations();
+  }
+
   savePurchase(): void {
-    if (this.purchaseForm.invalid || this.saving) {
-      this.purchaseForm.markAllAsTouched();
+    if (this.saving) {
       return;
     }
+    this.purchaseForm.updateValueAndValidity();
     const values = this.purchaseForm.getRawValue();
+    if (!values.supplier_id || !values.inventory_location_id) {
+      this.purchaseForm.markAllAsTouched();
+      this.formError = 'Selecciona el proveedor y el almacén de recepción.';
+      return;
+    }
     if (values.currency !== 'USD') {
       this.formError = 'Las compras deben registrarse en USD.';
       return;
     }
-    if (!values.lines.every((line) => line.product_id && line.animal_count && line.unit_cost)) {
-      this.formError = 'Completa producto, cantidad y costo unitario en todas las líneas.';
-      return;
-    }
     for (const line of this.lines.controls) {
+      const lineNumber = this.lines.controls.indexOf(line) + 1;
+      const mode = line.controls.reception_mode.value;
+      const quantity = line.controls.quantity.value.trim();
       const weights = this.parseWeights(line.controls.weights.value);
-      if (weights.length > 0 && weights.length !== Number(line.controls.animal_count.value)) {
-        this.formError = 'La cantidad de reses debe coincidir con la cantidad de pesos ingresados.';
+      if (!line.controls.product_id.value || !line.controls.unit_cost.value.trim()) {
+        this.formError = `Completa producto y costo unitario en la línea ${lineNumber}.`;
         return;
       }
-      if (weights.some((weight) => !/^(?=.*[1-9])\d+(\.\d{1,3})?$/.test(weight))) {
-        this.formError = 'Cada peso debe ser válido y tener hasta tres decimales.';
-        return;
+      if (mode === 'animal') {
+        if (!line.controls.animal_count.value.trim() || !line.controls.weights.value.trim()) {
+          this.formError = `Completa cantidad y peso por res en la línea ${lineNumber}.`;
+          return;
+        }
+        if (weights.length !== Number(line.controls.animal_count.value)) {
+          this.formError = 'La cantidad de reses debe coincidir con la cantidad de pesos ingresados.';
+          return;
+        }
+        if (weights.some((weight) => !/^(?=.*[1-9])\d+(\.\d{1,3})?$/.test(weight))) {
+          this.formError = 'Cada peso debe ser válido y tener hasta tres decimales.';
+          return;
+        }
+      } else {
+        if (!quantity || !/^(?=.*[1-9])\d+(\.\d{1,3})?$/.test(quantity)) {
+          this.formError = `Indica una cantidad válida en la línea ${lineNumber}.`;
+          return;
+        }
+        if (mode === 'conversion' && !line.controls.conversion_id.value) {
+          this.formError = `Selecciona la presentación en la línea ${lineNumber}.`;
+          return;
+        }
       }
     }
     if (new Set(values.lines.map((line) => line.product_id)).size !== values.lines.length) {
@@ -234,10 +375,15 @@ export class PurchasesComponent implements OnInit {
       notes: values.notes.trim() || null,
       lines: values.lines.map((line, index) => ({
         product_id: Number(line.product_id),
-        quantity: this.lineQuantity(this.lines.controls[index]),
-        unit_cost: line.unit_cost,
-        ...(this.parseWeights(line.weights).length > 0
-          ? { units: this.parseWeights(line.weights).map((weight) => ({ weight })) }
+        quantity: line.reception_mode === 'animal'
+          ? this.normalizeDecimal(this.lineQuantity(this.lines.controls[index]), 3)
+          : this.normalizeDecimal(line.quantity, 3),
+        unit_cost: this.normalizeDecimal(line.unit_cost, 6),
+        ...(line.reception_mode === 'conversion'
+          ? { conversion_id: Number(line.conversion_id) }
+          : {}),
+        ...(line.reception_mode === 'animal'
+          ? { units: this.parseWeights(line.weights).map((weight) => ({ weight: this.normalizeDecimal(weight, 3) })) }
           : {})
       }))
     })
@@ -339,9 +485,12 @@ export class PurchasesComponent implements OnInit {
   private createLine(): PurchaseLineForm {
     return new FormGroup({
       product_id: new FormControl('', { nonNullable: true, validators: [Validators.required] }),
+      reception_mode: new FormControl<'animal' | 'standard' | 'conversion'>('standard', { nonNullable: true }),
+      conversion_id: new FormControl('', { nonNullable: true }),
+      quantity: new FormControl('', { nonNullable: true }),
       animal_count: new FormControl('', {
         nonNullable: true,
-        validators: [Validators.required, Validators.pattern(/^(?=.*[1-9])\d+$/)]
+        validators: [Validators.pattern(/^(?=.*[1-9])\d+$/)]
       }),
       weights: new FormControl('', {
         nonNullable: true
@@ -351,5 +500,24 @@ export class PurchasesComponent implements OnInit {
         validators: [Validators.required, Validators.pattern(/^(?=.*[1-9])\d+(\.\d{1,6})?$/)]
       })
     });
+  }
+
+  private selectedConversion(line: PurchaseLineForm): ProductUnitConversion | undefined {
+    const conversionId = Number(line.controls.conversion_id.value);
+    return this.conversionsFor(line).find((conversion) => conversion.id === conversionId);
+  }
+
+  private isAnimalProduct(productId: string): boolean {
+    const product = this.products.find((item) => String(item.id) === productId);
+    const name = product?.name.toLocaleLowerCase() ?? '';
+    return name.includes('res') || name.includes('canal');
+  }
+
+  private normalizeDecimal(value: string, scale: number): string {
+    const trimmed = value.trim().replace(',', '.');
+    if (!/^\d+(?:\.\d+)?$/.test(trimmed)) {
+      return trimmed;
+    }
+    return scaledToDecimal(decimalToScaled(trimmed, scale), scale);
   }
 }

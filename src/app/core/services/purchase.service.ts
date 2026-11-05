@@ -30,6 +30,7 @@ export class PurchaseService {
       product_id: number;
       quantity: string;
       unit_cost: string;
+      conversion_id?: number;
       units?: Array<{ weight: string }>;
     }>;
   }): Observable<ApiItem<Purchase>> {

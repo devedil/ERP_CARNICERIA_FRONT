@@ -133,7 +133,7 @@
               <c-row class="g-2 align-items-end mb-3" [formGroupName]="index">
                 <c-col md="3">
                   <label cLabel [for]="'purchase-product-' + index">Producto</label>
-                  <select cSelect [id]="'purchase-product-' + index" formControlName="product_id">
+                  <select cSelect [id]="'purchase-product-' + index" formControlName="product_id" (change)="captureProductValue(line, $event)">
                     <option value="">Selecciona un producto</option>
                     @for (product of products; track product.id) {
                       <option [value]="product.id">{{ product.name }} ({{ product.base_unit }})</option>
@@ -141,21 +141,48 @@
                   </select>
                 </c-col>
                 <c-col md="2">
+                  <label cLabel [for]="'purchase-mode-' + index">Tipo de recepción</label>
+                  <select cSelect [id]="'purchase-mode-' + index" formControlName="reception_mode" (change)="captureModeValue(line, $event)">
+                    <option value="standard">Por {{ productBaseUnit(line) }}</option>
+                    <option value="conversion" [disabled]="conversionsFor(line).length === 0">Por presentación</option>
+                    <option value="animal">Reses individuales</option>
+                  </select>
+                </c-col>
+                @if (line.controls.reception_mode.value === 'conversion') {
+                  <c-col md="2">
+                    <label cLabel [for]="'purchase-conversion-' + index">Presentación</label>
+                    <select cSelect [id]="'purchase-conversion-' + index" formControlName="conversion_id" (change)="captureConversionValue(line, $event)">
+                      <option value="">Selecciona una presentación</option>
+                      @for (conversion of conversionsFor(line); track conversion.id) {
+                        <option [value]="conversion.id">{{ conversion.unit.name }} (x{{ conversion.factor_to_base }})</option>
+                      }
+                    </select>
+                  </c-col>
+                }
+                @if (line.controls.reception_mode.value === 'animal') {
+                <c-col md="2">
                   <label cLabel [for]="'purchase-quantity-' + index">Cantidad (reses)</label>
-                  <input cFormControl [id]="'purchase-quantity-' + index" type="number" min="1" step="1" formControlName="animal_count" />
+                  <input cFormControl [id]="'purchase-quantity-' + index" type="number" min="1" step="1" formControlName="animal_count" (input)="captureLineValue(line, 'animal_count', $event)" />
                 </c-col>
                 <c-col md="2">
                   <label cLabel [for]="'purchase-weights-' + index">Peso por res (kg)</label>
-                  <input cFormControl [id]="'purchase-weights-' + index" type="text" placeholder="320.500, 300.000" formControlName="weights" />
+                  <input cFormControl [id]="'purchase-weights-' + index" type="text" inputmode="decimal" placeholder="320.500, 300.000" formControlName="weights" (input)="captureLineValue(line, 'weights', $event)" />
                   <div class="form-text">Un peso por res, separado por comas.</div>
                 </c-col>
+                } @else {
                 <c-col md="2">
-                  <label cLabel [for]="'purchase-cost-' + index">Costo unitario (USD/kg)</label>
-                  <input cFormControl [id]="'purchase-cost-' + index" type="number" min="0.000001" step="0.000001" formControlName="unit_cost" />
+                  <label cLabel [for]="'purchase-quantity-' + index">Cantidad</label>
+                  <input cFormControl [id]="'purchase-quantity-' + index" type="number" min="0.001" step="0.001" formControlName="quantity" (input)="captureLineValue(line, 'quantity', $event)" />
+                  <div class="form-text">Inventario en {{ line.controls.reception_mode.value === 'conversion' ? 'presentación convertida' : 'unidad base' }}.</div>
+                </c-col>
+                }
+                <c-col md="2">
+                  <label cLabel [for]="'purchase-cost-' + index">Costo unitario ({{ lineUnitLabel(line) }})</label>
+                  <input cFormControl [id]="'purchase-cost-' + index" type="number" min="0.000001" step="0.000001" formControlName="unit_cost" (input)="captureLineValue(line, 'unit_cost', $event)" />
                 </c-col>
                 <c-col md="2">
                   <label cLabel>Subtotal</label>
-                  <div class="form-control bg-body-secondary">{{ lineTotal(line) }} {{ purchaseForm.controls.currency.value }}</div>
+                  <div class="form-control bg-body-secondary">{{ lineTotal(line) }} USD</div>
                 </c-col>
                 <c-col md="1">
                   <button cButton color="danger" variant="outline" type="button" class="w-100" [disabled]="lines.length <= 1" (click)="removeLine(index)">×</button>
@@ -164,7 +191,7 @@
             }
           </div>
           <div class="d-flex justify-content-end mt-3">
-            <strong class="h5 mb-0">Total estimado: {{ estimatedTotal() }} {{ purchaseForm.controls.currency.value }}</strong>
+            <strong class="h5 mb-0">Total estimado: {{ estimatedTotal() }} USD</strong>
           </div>
           <p class="text-body-secondary small mt-2 mb-0">
             La recepción actualiza las existencias. Los pagos al proveedor se registran después de crear la compra.
