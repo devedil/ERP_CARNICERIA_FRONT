@@ -262,6 +262,7 @@
                   <tr>
                     <th scope="col">Fecha</th>
                     <th scope="col">Producto de origen</th>
+                    <th scope="col">Res / compra</th>
                     <th scope="col">Cantidad de origen</th>
                     <th scope="col">Almacén</th>
                     <th scope="col">Subproductos</th>
@@ -275,6 +276,19 @@
                     <tr>
                       <td>{{ processing.created_at }}</td>
                       <td>{{ productName(processing.source_product_id) }}</td>
+                      <td>
+                        @if (processing.source_item) {
+                          <div>{{ processing.source_item.identifier }} · {{ processing.source_item.weight }} kg</div>
+                          @if (processing.source_item.purchase) {
+                            <small class="text-body-secondary">
+                              {{ processing.source_item.purchase.document_number || ('Compra #' + processing.source_item.purchase.id) }}
+                              · {{ processing.source_item.purchase.supplier?.name || 'Proveedor no disponible' }}
+                            </small>
+                          }
+                        } @else {
+                          <span class="text-body-secondary">Sin res individual</span>
+                        }
+                      </td>
                       <td>{{ processing.source_quantity }}</td>
                       <td>{{ locationName(processing.inventory_location_id) }}</td>
                       <td>{{ processing.outputs.length }}</td>
@@ -302,15 +316,6 @@
             <div class="alert alert-danger" role="alert">{{ formError }}</div>
           }
           <c-row class="g-3">
-            <c-col xs="12">
-              <label cLabel for="processing-source-item">Res disponible para desposte</label>
-              <select cSelect id="processing-source-item" formControlName="source_inventory_item_id" (change)="selectProcessingItem()">
-                <option value="">Selecciona la res que deseas despostar</option>
-                @for (item of inventoryItems; track item.id) {
-                  <option [value]="item.id">{{ item.identifier }} · {{ item.product.name }} · {{ item.remaining_weight }} kg · {{ item.location.name }}</option>
-                }
-              </select>
-            </c-col>
             <c-col md="6">
               <label cLabel for="adjustment-product">Producto</label>
               <select cSelect id="adjustment-product" formControlName="product_id">
@@ -434,6 +439,16 @@
                   <option [value]="product.id">{{ product.name }} ({{ product.base_unit }})</option>
                 }
               </select>
+            </c-col>
+            <c-col xs="12">
+              <label cLabel for="processing-source-item">Res disponible para desposte</label>
+              <select cSelect id="processing-source-item" formControlName="source_inventory_item_id" (change)="selectProcessingItem()">
+                <option value="">Selecciona la res que deseas despostar</option>
+                @for (item of inventoryItems; track item.id) {
+                  <option [value]="item.id">{{ inventoryItemLabel(item) }}</option>
+                }
+              </select>
+              <div class="form-text">El peso, producto y almacén se toman de la res seleccionada.</div>
             </c-col>
             <c-col md="6">
               <label cLabel for="processing-location">Almacén</label>

@@ -87,6 +87,14 @@ export interface InventoryItem {
   cost_currency: string;
   status: string;
   processed_at: string | null;
+  purchase: PurchaseOrigin | null;
+}
+
+export interface PurchaseOrigin {
+  id: number;
+  document_number: string | null;
+  received_at: string;
+  supplier: Pick<Supplier, 'id' | 'name'> | null;
 }
 
 export interface InventoryMovement {
@@ -138,6 +146,13 @@ export interface InventoryProcessing {
   reason: string;
   status: string;
   outputs: InventoryProcessingOutput[];
+  source_item: {
+    id: number;
+    identifier: string;
+    weight: string;
+    unit_cost: string;
+    purchase: PurchaseOrigin | null;
+  } | null;
   created_at: string;
 }
 

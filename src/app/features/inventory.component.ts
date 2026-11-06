@@ -510,6 +510,14 @@ export class InventoryComponent implements OnInit {
     return this.locations.find((location) => location.id === id)?.name ?? `Almacén #${id}`;
   }
 
+  inventoryItemLabel(item: InventoryItem): string {
+    const purchase = item.purchase;
+    const purchaseLabel = purchase
+      ? ` · Compra ${purchase.document_number || `#${purchase.id}`}`
+      : '';
+    return `${item.identifier} · ${item.product.name} · ${item.remaining_weight} kg · ${item.location.name}${purchaseLabel}`;
+  }
+
   private filters(page: number): {
     productId?: number;
     locationId?: number;
