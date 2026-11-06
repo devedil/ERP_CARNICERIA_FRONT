@@ -1,4 +1,4 @@
-import { Component, DestroyRef, inject, OnInit } from '@angular/core';
+import { ChangeDetectorRef, Component, DestroyRef, inject, OnInit } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormArray, FormControl, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
 import {
@@ -71,6 +71,7 @@ export class InventoryComponent implements OnInit {
   readonly #destroyRef = inject(DestroyRef);
   readonly #inventory = inject(InventoryService);
   readonly #products = inject(ProductService);
+  readonly #changeDetector = inject(ChangeDetectorRef);
 
   products: Product[] = [];
   locations: InventoryLocation[] = [];
@@ -121,7 +122,7 @@ export class InventoryComponent implements OnInit {
     destination_location_id: new FormControl('', { nonNullable: true, validators: [Validators.required] }),
     quantity: new FormControl('', {
       nonNullable: true,
-      validators: [Validators.required, Validators.pattern(/^(?=.*[1-9])\d+(\.\d{1,3})?$/)]
+      validators: [Validators.required, Validators.pattern(/^(?=.*[1-9])\d+(?:\.\d{1,3})?$/)]
     }),
     reason: new FormControl('', { nonNullable: true, validators: [Validators.required, Validators.maxLength(255)] })
   });
@@ -131,11 +132,11 @@ export class InventoryComponent implements OnInit {
     inventory_location_id: new FormControl('', { nonNullable: true, validators: [Validators.required] }),
     source_quantity: new FormControl('', {
       nonNullable: true,
-      validators: [Validators.required, Validators.pattern(/^(?=.*[1-9])\d+(\.\d{1,3})?$/)]
+      validators: [Validators.required, Validators.pattern(/^(?=.*[1-9])\d+(?:\.\d{1,3})?$/)]
     }),
     waste_quantity: new FormControl('0', {
       nonNullable: true,
-      validators: [Validators.pattern(/^\d+(\.\d{1,3})?$/)]
+      validators: [Validators.pattern(/^\d+(?:\.\d{1,3})?$/)]
     }),
     reason: new FormControl('', { nonNullable: true, validators: [Validators.required, Validators.maxLength(255)] }),
     outputs: new FormArray<ProcessingOutputForm>([this.createProcessingOutput()])
@@ -383,12 +384,26 @@ export class InventoryComponent implements OnInit {
 
   addProcessingOutput(): void {
     this.processingForm.controls.outputs.push(this.createProcessingOutput());
+    this.#changeDetector.markForCheck();
   }
 
   removeProcessingOutput(index: number): void {
     if (this.processingForm.controls.outputs.length > 1) {
       this.processingForm.controls.outputs.removeAt(index);
+      this.#changeDetector.markForCheck();
     }
+  }
+
+  captureProcessingProduct(output: ProcessingOutputForm, event: Event): void {
+    output.controls.product_id.setValue((event.target as HTMLSelectElement).value, { emitEvent: true });
+    output.updateValueAndValidity();
+    this.#changeDetector.markForCheck();
+  }
+
+  captureProcessingQuantity(output: ProcessingOutputForm, event: Event): void {
+    output.controls.quantity.setValue((event.target as HTMLInputElement).value, { emitEvent: true });
+    output.updateValueAndValidity();
+    this.#changeDetector.markForCheck();
   }
 
   processingShareTotal(): string {
@@ -480,12 +495,12 @@ export class InventoryComponent implements OnInit {
       source_product_id: Number(values.source_product_id),
       source_inventory_item_id: Number(values.source_inventory_item_id),
       inventory_location_id: Number(values.inventory_location_id),
-      source_quantity: values.source_quantity,
-      waste_quantity: values.waste_quantity || '0',
+      source_quantity: this.normalizeDecimal(values.source_quantity, 3),
+      waste_quantity: this.normalizeDecimal(values.waste_quantity || '0', 3),
       reason: values.reason.trim(),
       outputs: values.outputs.map((output) => ({
         product_id: Number(output.product_id),
-        quantity: output.quantity
+        quantity: this.normalizeDecimal(output.quantity, 3)
       }))
     })
       .pipe(
@@ -537,9 +552,16 @@ export class InventoryComponent implements OnInit {
       product_id: new FormControl('', { nonNullable: true, validators: [Validators.required] }),
       quantity: new FormControl('', {
         nonNullable: true,
-        validators: [Validators.required, Validators.pattern(/^(?=.*[1-9])\d+(\.\d{1,3})?$/)]
+        validators: [Validators.required, Validators.pattern(/^(?=.*[1-9])\d+(?:\.\d{1,3})?$/)]
       })
     });
   }
 
+  private normalizeDecimal(value: string, scale: number): string {
+    const normalized = value.trim().replace(',', '.');
+    if (!/^\d+(?:\.\d+)?$/.test(normalized)) {
+      return normalized;
+    }
+    return scaledToDecimal(decimalToScaled(normalized, scale), scale);
+  }
 }
