@@ -286,8 +286,49 @@ export interface CashExpenseCategory {
 export interface Customer {
   id: number;
   name: string;
+  document_type?: string | null;
+  document_number?: string | null;
+  phone?: string | null;
   customer_type?: string;
   is_active?: boolean;
+}
+
+export interface CustomerAccountPayment {
+  id: number;
+  amount: string;
+  currency: string;
+  exchange_rate: string;
+  applied_amount: string;
+}
+
+export interface CustomerAccountEntry {
+  sale_id: number;
+  document_number: string | null;
+  sold_at: string;
+  currency: string;
+  total: string;
+  paid_amount: string;
+  balance: string;
+  status: string;
+  payments: CustomerAccountPayment[];
+}
+
+export interface CustomerAccountBalance {
+  currency: string;
+  sales_total: string;
+  paid_total: string;
+  balance: string;
+}
+
+export interface CustomerCreditAccount {
+  customer: Customer;
+  balances: CustomerAccountBalance[];
+}
+
+export interface CustomerAccountStatement {
+  customer: Customer;
+  balances: CustomerAccountBalance[];
+  entries: CustomerAccountEntry[];
 }
 
 export interface Supplier {

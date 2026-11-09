@@ -1,0 +1,313 @@
+<c-row class="mb-4">
+  <c-col xs="12">
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-3">
+      <div>
+        <h1 class="h3 mb-1">Estado de cuenta de clientes</h1>
+        <p class="text-body-secondary mb-0">Consulta clientes con saldo pendiente, sus ventas a crédito y abonos registrados.</p>
+      </div>
+      <button
+        cButton
+        color="secondary"
+        variant="outline"
+        type="button"
+        [disabled]="loadingAccounts || loadingStatement"
+        (click)="refresh()"
+      >
+        Actualizar
+      </button>
+    </div>
+
+    @if (pageError) {
+      <div class="alert alert-danger" role="alert">{{ pageError }}</div>
+    }
+    @if (successMessage) {
+      <div class="alert alert-success alert-dismissible" role="status">
+        {{ successMessage }}
+        <button type="button" class="btn-close" aria-label="Cerrar" (click)="successMessage = ''"></button>
+      </div>
+    }
+
+    <c-card>
+      <c-card-header><strong>Clientes con créditos pendientes</strong></c-card-header>
+      <c-card-body>
+        @if (loadingAccounts) {
+          <div class="text-center text-body-secondary py-5">Cargando clientes con saldo pendiente...</div>
+        } @else if (creditAccounts.length === 0) {
+          <div class="text-center text-body-secondary py-5">No hay clientes con saldos pendientes.</div>
+        } @else {
+          <div class="table-responsive">
+            <table cTable [striped]="true" [hover]="true">
+              <thead>
+                <tr>
+                  <th scope="col">Cliente</th>
+                  <th scope="col">Documento</th>
+                  <th scope="col">Saldo pendiente</th>
+                  <th scope="col">Acciones</th>
+                </tr>
+              </thead>
+              <tbody>
+                @for (account of creditAccounts; track account.customer.id) {
+                  <tr>
+                    <td>
+                      <strong>{{ account.customer.name }}</strong>
+                      @if (account.customer.phone) {
+                        <div class="small text-body-secondary">{{ account.customer.phone }}</div>
+                      }
+                    </td>
+                    <td>
+                      {{ account.customer.document_type ?? '' }}
+                      {{ account.customer.document_number ?? 'No registrado' }}
+                    </td>
+                    <td>
+                      @for (balance of account.balances; track balance.currency) {
+                        <div><strong>{{ balance.balance }} {{ balance.currency }}</strong></div>
+                      }
+                    </td>
+                    <td>
+                      <button
+                        cButton
+                        color="primary"
+                        size="sm"
+                        variant="outline"
+                        type="button"
+                        (click)="openCustomerAccount(account)"
+                      >
+                        Ver detalle
+                      </button>
+                    </td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          </div>
+        }
+      </c-card-body>
+    </c-card>
+
+    <c-modal
+      [(visible)]="accountModalVisible"
+      alignment="center"
+      backdrop="static"
+      [keyboard]="false"
+      size="xl"
+    >
+      <c-modal-header>
+        <h5 cModalTitle>Deuda de {{ selectedCreditAccount?.customer?.name ?? 'cliente' }}</h5>
+        <button cButtonClose (click)="accountModalVisible = false"></button>
+      </c-modal-header>
+      <c-modal-body>
+        @if (selectedCreditAccount; as account) {
+          <div class="d-flex flex-wrap justify-content-between align-items-end gap-3 mb-3">
+            <div class="text-body-secondary">
+              @if (account.customer.document_number) {
+                <div>
+                  {{ account.customer.document_type ?? 'Documento' }}:
+                  {{ account.customer.document_number }}
+                </div>
+              }
+              @if (account.customer.phone) {
+                <div>Teléfono: {{ account.customer.phone }}</div>
+              }
+            </div>
+            <div>
+              <label cLabel for="account-currency">Moneda</label>
+              <select
+                cSelect
+                id="account-currency"
+                [formControl]="currencyControl"
+                (change)="onCurrencyChanged()"
+                [disabled]="loadingStatement"
+              >
+                <option value="">Todas las monedas</option>
+                @for (currency of availableCurrencies; track currency) {
+                  <option [value]="currency">{{ currency }}</option>
+                }
+              </select>
+            </div>
+          </div>
+
+          @if (statementError) {
+            <div class="alert alert-danger" role="alert">{{ statementError }}</div>
+          }
+          @if (loadingStatement) {
+            <div class="text-center text-body-secondary py-5">Cargando detalle de la deuda...</div>
+          } @else if (statement) {
+            @if (statement.balances.length === 0) {
+              <div class="alert alert-info" role="status">
+                {{ statement.customer.name }} no tiene ventas a crédito registradas para esta moneda.
+              </div>
+            } @else {
+              <c-row class="g-3 mb-4">
+                @for (balance of statement.balances; track balance.currency) {
+                  <c-col sm="6" xl="4">
+                    <c-card>
+                      <c-card-header><strong>Resumen en {{ balance.currency }}</strong></c-card-header>
+                      <c-card-body>
+                        <div class="d-flex justify-content-between mb-2">
+                          <span>Ventas a crédito</span>
+                          <strong>{{ balance.sales_total }} {{ balance.currency }}</strong>
+                        </div>
+                        <div class="d-flex justify-content-between mb-2">
+                          <span>Abonos aplicados</span>
+                          <strong>{{ balance.paid_total }} {{ balance.currency }}</strong>
+                        </div>
+                        <div class="d-flex justify-content-between border-top pt-2">
+                          <span>Saldo pendiente</span>
+                          <strong>{{ balance.balance }} {{ balance.currency }}</strong>
+                        </div>
+                      </c-card-body>
+                    </c-card>
+                  </c-col>
+                }
+              </c-row>
+
+              <div class="table-responsive">
+                <table cTable [striped]="true" [hover]="true">
+                  <thead>
+                    <tr>
+                      <th scope="col">Comprobante</th>
+                      <th scope="col">Fecha</th>
+                      <th scope="col">Total</th>
+                      <th scope="col">Abonado</th>
+                      <th scope="col">Saldo</th>
+                      <th scope="col">Estado</th>
+                      <th scope="col">Abonos</th>
+                      <th scope="col">Acciones</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    @for (entry of statement.entries; track entry.sale_id) {
+                      <tr>
+                        <td>{{ documentLabel(entry) }}</td>
+                        <td>{{ entry.sold_at }}</td>
+                        <td>{{ entry.total }} {{ entry.currency }}</td>
+                        <td>{{ entry.paid_amount }} {{ entry.currency }}</td>
+                        <td><strong>{{ entry.balance }} {{ entry.currency }}</strong></td>
+                        <td>{{ entry.status }}</td>
+                        <td>
+                          @if (entry.payments.length === 0) {
+                            <span class="text-body-secondary">Sin abonos</span>
+                          } @else {
+                            @for (payment of entry.payments; track payment.id) {
+                              <div>{{ payment.amount }} {{ payment.currency }}</div>
+                              @if (payment.currency !== entry.currency) {
+                                <small class="text-body-secondary">
+                                  Aplicado: {{ payment.applied_amount }} {{ entry.currency }}
+                                </small>
+                              }
+                            }
+                          }
+                        </td>
+                        <td>
+                          @if (entry.balance !== '0.000000') {
+                            <button
+                              cButton
+                              color="primary"
+                              size="sm"
+                              variant="outline"
+                              type="button"
+                              [disabled]="openSessions.length === 0"
+                              (click)="openPayment(entry)"
+                            >
+                              Registrar abono
+                            </button>
+                          } @else {
+                            <span class="text-body-secondary">Pagada</span>
+                          }
+                        </td>
+                      </tr>
+                    }
+                  </tbody>
+                </table>
+              </div>
+            }
+          } @else if (!statementError) {
+            <div class="text-center text-body-secondary py-5">No hay información de cuenta disponible.</div>
+          }
+        }
+      </c-modal-body>
+      <c-modal-footer>
+        <button cButton color="secondary" variant="outline" type="button" (click)="accountModalVisible = false">
+          Cerrar
+        </button>
+      </c-modal-footer>
+    </c-modal>
+
+    <c-modal [(visible)]="paymentModalVisible" alignment="center" backdrop="static" [keyboard]="false" size="lg">
+      <c-modal-header>
+        <h5 cModalTitle>Registrar abono a {{ selectedEntry ? documentLabel(selectedEntry) : 'venta' }}</h5>
+        <button cButtonClose [disabled]="savingPayment" (click)="closePayment()"></button>
+      </c-modal-header>
+      <form cForm [formGroup]="paymentForm" (ngSubmit)="savePayment()">
+        <c-modal-body>
+          @if (paymentError) {
+            <div class="alert alert-danger" role="alert">{{ paymentError }}</div>
+          }
+          @if (selectedEntry) {
+            <p>
+              Saldo pendiente:
+              <strong>{{ selectedEntry.balance }} {{ selectedEntry.currency }}</strong>
+            </p>
+          }
+          @if (openSessions.length === 0) {
+            <div class="alert alert-warning" role="status">
+              No hay sesiones de caja abiertas. Abre una caja antes de registrar un abono.
+            </div>
+          }
+          <c-row class="g-3">
+            <c-col md="6">
+              <label cLabel for="account-payment-session">Sesión de caja</label>
+              <select cSelect id="account-payment-session" formControlName="cash_session_id">
+                <option value="">Selecciona una sesión abierta</option>
+                @for (session of openSessions; track session.id) {
+                  <option [value]="session.id">
+                    Caja {{ session.register?.name ?? ('#' + session.id) }} · {{ session.currency }}
+                  </option>
+                }
+              </select>
+            </c-col>
+            <c-col md="6">
+              <label cLabel for="account-payment-amount">Importe recibido (moneda de caja)</label>
+              <input cFormControl id="account-payment-amount" type="text" inputmode="decimal" formControlName="amount" />
+            </c-col>
+            <c-col md="6">
+              <label cLabel for="account-payment-method">Método de pago</label>
+              <select cSelect id="account-payment-method" formControlName="payment_method">
+                <option value="cash">Efectivo</option>
+                <option value="card">Tarjeta</option>
+                <option value="transfer">Transferencia</option>
+                <option value="mobile_payment">Pago móvil</option>
+                <option value="other">Otro</option>
+              </select>
+            </c-col>
+            <c-col md="6">
+              <label cLabel for="account-payment-rate">Tasa (moneda de venta por moneda de caja)</label>
+              @if (paymentRequiresExchangeRate()) {
+                <input cFormControl id="account-payment-rate" type="text" inputmode="decimal" formControlName="exchange_rate" />
+                <div class="form-text">
+                  Indica cuántas unidades de {{ selectedEntry?.currency }} equivalen a una unidad de
+                  {{ selectedPaymentSession()?.currency }}.
+                </div>
+              } @else {
+                <div class="form-control bg-body-secondary">No requerida: caja {{ selectedEntry?.currency }}</div>
+              }
+            </c-col>
+            <c-col xs="12">
+              <div class="small text-body-secondary">
+                Se aplicarán {{ paymentAppliedAmount() }} {{ selectedEntry?.currency }} al saldo.
+              </div>
+            </c-col>
+          </c-row>
+        </c-modal-body>
+        <c-modal-footer>
+          <button cButton color="secondary" variant="outline" type="button" [disabled]="savingPayment" (click)="closePayment()">
+            Cancelar
+          </button>
+          <button cButton color="primary" type="submit" [disabled]="savingPayment || openSessions.length === 0">
+            {{ savingPayment ? 'Procesando...' : 'Registrar abono' }}
+          </button>
+        </c-modal-footer>
+      </form>
+    </c-modal>
+  </c-col>
+</c-row>

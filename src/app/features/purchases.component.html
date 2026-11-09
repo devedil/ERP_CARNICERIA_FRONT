@@ -16,6 +16,11 @@
     @if (successMessage) {
       <div class="alert alert-success alert-dismissible" role="status">
         {{ successMessage }}
+        @if (lastPaymentReceiptUrl) {
+          <a class="btn btn-success btn-sm ms-2" [href]="lastPaymentReceiptUrl" target="_blank" rel="noopener">
+            Imprimir comprobante de pago
+          </a>
+        }
         <button type="button" class="btn-close" aria-label="Cerrar" (click)="successMessage = ''"></button>
       </div>
     }
@@ -61,6 +66,16 @@
                           </button>
                         } @else {
                           <span class="text-body-secondary">Pagada</span>
+                        }
+                        @for (payment of purchase.payments; track payment.id) {
+                          <a
+                            class="btn btn-secondary btn-sm ms-1"
+                            [href]="paymentReceiptUrl(purchase, payment)"
+                            target="_blank"
+                            rel="noopener"
+                          >
+                            Pago #{{ payment.id }}
+                          </a>
                         }
                       </td>
                     </tr>
@@ -229,7 +244,7 @@
             </c-col>
             <c-col md="6">
               <label cLabel for="purchase-payment-amount">Importe pagado (moneda de caja)</label>
-              <input cFormControl id="purchase-payment-amount" type="number" min="0.000001" step="0.000001" formControlName="amount" />
+              <input cFormControl id="purchase-payment-amount" type="text" inputmode="decimal" formControlName="amount" />
             </c-col>
             <c-col md="6">
               <label cLabel for="purchase-payment-method">Método de pago</label>
@@ -244,7 +259,7 @@
             <c-col md="6">
               <label cLabel for="purchase-payment-rate">Tasa (moneda de compra por moneda de caja)</label>
               @if (paymentRequiresExchangeRate()) {
-                <input cFormControl id="purchase-payment-rate" type="number" min="0.000001" step="0.000001" formControlName="exchange_rate" />
+                <input cFormControl id="purchase-payment-rate" type="text" inputmode="decimal" formControlName="exchange_rate" />
                 <div class="form-text">Indica cuántos USD equivalen a una unidad de {{ selectedPaymentSession()?.currency }}.</div>
               } @else {
                 <div class="form-control bg-body-secondary">No requerida: caja USD</div>

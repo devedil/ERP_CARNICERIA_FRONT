@@ -1,4 +1,4 @@
-import { Component, DestroyRef, inject, OnInit } from '@angular/core';
+import { ChangeDetectorRef, Component, DestroyRef, inject, OnInit } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormArray, FormControl, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
 import {
@@ -74,6 +74,7 @@ type SaleLineForm = FormGroup<{
 })
 export class SalesComponent implements OnInit {
   readonly #destroyRef = inject(DestroyRef);
+  readonly #changeDetector = inject(ChangeDetectorRef);
   readonly #sales = inject(SaleService);
   readonly #productsApi = inject(ProductService);
   readonly #customersApi = inject(CustomerService);
@@ -91,8 +92,10 @@ export class SalesComponent implements OnInit {
   exchangeRate: ExchangeRate | null = null;
   exchangeRateError = '';
   exchangeRateLoading = false;
+  sessionsError = '';
   readonly productPrices = new Map<number, ProductPrice[]>();
   loading = false;
+  sessionsLoading = false;
   saving = false;
   page = 1;
   lastPage = 1;
@@ -102,6 +105,8 @@ export class SalesComponent implements OnInit {
   successMessage = '';
   saleModalVisible = false;
   paymentModalVisible = false;
+  saleDetailsModalVisible = false;
+  selectedSaleDetails: Sale | null = null;
   selectedSale: Sale | null = null;
   readonly saleForm = new FormGroup({
     customer_id: new FormControl('', { nonNullable: true }),
@@ -127,6 +132,9 @@ export class SalesComponent implements OnInit {
   });
 
   ngOnInit(): void {
+    this.saleForm.valueChanges
+      .pipe(takeUntilDestroyed(this.#destroyRef))
+      .subscribe(() => this.#changeDetector.markForCheck());
     this.load();
   }
 
@@ -167,7 +175,10 @@ export class SalesComponent implements OnInit {
     })
       .pipe(
         takeUntilDestroyed(this.#destroyRef),
-        finalize(() => this.loading = false)
+        finalize(() => {
+          this.loading = false;
+          this.#changeDetector.markForCheck();
+        })
       )
       .subscribe({
         next: (result) => {
@@ -186,16 +197,19 @@ export class SalesComponent implements OnInit {
           this.openSessions = result.sessions.data.filter((session) => session.status === 'open');
           this.exchangeRate = result.exchangeRate?.data ?? null;
           this.exchangeRateLoading = false;
+          this.#changeDetector.markForCheck();
         },
         error: (error: unknown) => {
           this.pageError = getApiErrorMessage(error);
           this.exchangeRateLoading = false;
+          this.#changeDetector.markForCheck();
         }
       });
   }
 
   openSale(): void {
     this.formError = '';
+    this.sessionsError = '';
     this.saleForm.reset({
       customer_id: '',
       price_list_id: '',
@@ -208,6 +222,31 @@ export class SalesComponent implements OnInit {
     this.lines.clear();
     this.lines.push(this.createLine());
     this.saleModalVisible = true;
+    this.refreshOpenSessions();
+  }
+
+  refreshOpenSessions(): void {
+    this.sessionsLoading = true;
+    this.sessionsError = '';
+    this.openSessions = [];
+    this.#cashApi.openSessions()
+      .pipe(
+        takeUntilDestroyed(this.#destroyRef),
+        finalize(() => {
+          this.sessionsLoading = false;
+          this.#changeDetector.markForCheck();
+        })
+      )
+      .subscribe({
+        next: (response) => {
+          this.openSessions = response.data.filter((session) => session.status === 'open');
+          this.#changeDetector.markForCheck();
+        },
+        error: (error: unknown) => {
+          this.sessionsError = getApiErrorMessage(error);
+          this.#changeDetector.markForCheck();
+        }
+      });
   }
 
   addLine(): void {
@@ -220,10 +259,25 @@ export class SalesComponent implements OnInit {
     }
   }
 
-  onProductChanged(index: number): void {
+  captureProductValue(index: number, event: Event): void {
+    const line = this.lines.at(index);
+    const productId = (event.target as HTMLSelectElement).value;
+    line.controls.product_id.setValue(productId, { emitEvent: true });
+    line.controls.unit_id.setValue('');
+    this.formError = '';
+    this.onProductChanged(index);
+    this.#changeDetector.markForCheck();
+  }
+
+  captureLineValue(index: number, control: 'unit_id' | 'quantity', event: Event): void {
+    const value = (event.target as HTMLInputElement | HTMLSelectElement).value;
+    this.lines.at(index).controls[control].setValue(value, { emitEvent: true });
+    this.#changeDetector.markForCheck();
+  }
+
+  private onProductChanged(index: number): void {
     const line = this.lines.at(index);
     const productId = Number(line.controls.product_id.value);
-    line.controls.unit_id.setValue('');
     if (!productId || this.productPrices.has(productId)) {
       return;
     }
@@ -231,8 +285,14 @@ export class SalesComponent implements OnInit {
     this.#productsApi.prices(productId)
       .pipe(takeUntilDestroyed(this.#destroyRef))
       .subscribe({
-        next: (response) => this.productPrices.set(productId, response.data),
-        error: (error: unknown) => this.formError = getApiErrorMessage(error)
+        next: (response) => {
+          this.productPrices.set(productId, response.data);
+          this.#changeDetector.markForCheck();
+        },
+        error: (error: unknown) => {
+          this.formError = getApiErrorMessage(error);
+          this.#changeDetector.markForCheck();
+        }
       });
   }
 
@@ -261,8 +321,24 @@ export class SalesComponent implements OnInit {
     return multiplyDecimalsToSix(quantity, unitPriceVes);
   }
 
+  estimatedLineTotalUsd(line: SaleLineForm): string {
+    if (!this.exchangeRate) {
+      return '0.000000';
+    }
+
+    return this.divideDecimalsToSix(this.estimatedLineTotal(line), this.exchangeRate.rate);
+  }
+
   estimatedTotal(): string {
     return sumDecimals(this.lines.controls.map((line) => this.estimatedLineTotal(line)));
+  }
+
+  estimatedTotalUsd(): string {
+    if (!this.exchangeRate) {
+      return '0.000000';
+    }
+
+    return this.divideDecimalsToSix(this.estimatedTotal(), this.exchangeRate.rate);
   }
 
   saveSale(): void {
@@ -309,7 +385,7 @@ export class SalesComponent implements OnInit {
       payments.push({
         cash_session_id: session.id,
         payment_method: values.payment_method,
-        amount: this.estimatedTotal()
+        amount: this.normalizeDecimal(this.estimatedTotal(), 6)
       });
     }
 
@@ -328,13 +404,16 @@ export class SalesComponent implements OnInit {
       lines: values.lines.map((line) => ({
         product_id: Number(line.product_id),
         unit_id: line.unit_id ? Number(line.unit_id) : null,
-        quantity: line.quantity
+        quantity: this.normalizeDecimal(line.quantity, 3)
       })),
       ...(payments.length ? { payments } : {})
     })
       .pipe(
         takeUntilDestroyed(this.#destroyRef),
-        finalize(() => this.saving = false)
+        finalize(() => {
+          this.saving = false;
+          this.#changeDetector.markForCheck();
+        })
       )
       .subscribe({
         next: ({ data }) => {
@@ -342,7 +421,10 @@ export class SalesComponent implements OnInit {
           this.successMessage = `Venta #${data.id} registrada correctamente.`;
           this.load(1);
         },
-        error: (error: unknown) => this.formError = getApiErrorMessage(error)
+        error: (error: unknown) => {
+          this.formError = getApiErrorMessage(error);
+          this.#changeDetector.markForCheck();
+        }
       });
   }
 
@@ -399,13 +481,18 @@ export class SalesComponent implements OnInit {
   }
 
   remaining(sale: Sale): string {
-    const paid = sumDecimals(sale.payments.map((payment) => payment.applied_amount));
+    const paid = sumDecimals((sale.payments ?? []).map((payment) => payment.applied_amount));
     const balance = decimalToScaled(sale.total, 6) - decimalToScaled(paid, 6);
     return scaledToDecimal(balance > 0n ? balance : 0n, 6);
   }
 
   canReceivePayment(sale: Sale): boolean {
     return Boolean(sale.customer && this.remaining(sale) !== '0.000000');
+  }
+
+  openSaleDetails(sale: Sale): void {
+    this.selectedSaleDetails = sale;
+    this.saleDetailsModalVisible = true;
   }
 
   openReceipt(sale: Sale): void {
@@ -419,6 +506,20 @@ export class SalesComponent implements OnInit {
       price.price_list.id === priceListId &&
       (price.unit ? String(price.unit.id) : '') === line.unit_id
     );
+  }
+
+  private normalizeDecimal(value: string, scale: number): string {
+    return scaledToDecimal(decimalToScaled(value, scale), scale);
+  }
+
+  private divideDecimalsToSix(dividend: string, divisor: string): string {
+    const numerator = decimalToScaled(dividend, 6) * 1_000_000n;
+    const denominator = decimalToScaled(divisor, 6);
+    if (denominator <= 0n) {
+      return '0.000000';
+    }
+
+    return scaledToDecimal((numerator + denominator / 2n) / denominator, 6);
   }
 
   private createLine(): SaleLineForm {

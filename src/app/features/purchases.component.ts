@@ -29,6 +29,7 @@ import {
   Product,
   ProductUnitConversion,
   Purchase,
+  PurchasePayment,
   Supplier
 } from '../core/models/catalog.models';
 import { CashService } from '../core/services/cash.service';
@@ -95,6 +96,7 @@ export class PurchasesComponent implements OnInit {
   pageError = '';
   formError = '';
   successMessage = '';
+  lastPaymentReceiptUrl = '';
   purchaseModalVisible = false;
   paymentModalVisible = false;
   readonly lineConversions = new Map<PurchaseLineForm, ProductUnitConversion[]>();
@@ -113,11 +115,11 @@ export class PurchasesComponent implements OnInit {
   readonly paymentForm = new FormGroup({
     cash_session_id: new FormControl('', { nonNullable: true, validators: [Validators.required] }),
     payment_method: new FormControl('cash', { nonNullable: true, validators: [Validators.required] }),
-    amount: new FormControl('', {
+    amount: new FormControl<string | number>('', {
       nonNullable: true,
       validators: [Validators.required, Validators.pattern(/^\d+(\.\d{1,6})?$/)]
     }),
-    exchange_rate: new FormControl('', {
+    exchange_rate: new FormControl<string | number>('', {
       nonNullable: true,
       validators: [Validators.pattern(/^\d+(\.\d{1,6})?$/)]
     })
@@ -146,7 +148,10 @@ export class PurchasesComponent implements OnInit {
     })
       .pipe(
         takeUntilDestroyed(this.#destroyRef),
-        finalize(() => this.loading = false)
+        finalize(() => {
+          this.loading = false;
+          this.#changeDetector.markForCheck();
+        })
       )
       .subscribe({
         next: (result) => {
@@ -158,13 +163,18 @@ export class PurchasesComponent implements OnInit {
           this.products = result.products.data;
           this.locations = result.locations.data;
           this.openSessions = result.sessions.data.filter((session) => session.status === 'open');
+          this.#changeDetector.markForCheck();
         },
-        error: (error: unknown) => this.pageError = getApiErrorMessage(error)
+        error: (error: unknown) => {
+          this.pageError = getApiErrorMessage(error);
+          this.#changeDetector.markForCheck();
+        }
       });
   }
 
   openPurchase(): void {
     this.formError = '';
+    this.lastPaymentReceiptUrl = '';
     this.purchaseForm.reset({
       supplier_id: '',
       inventory_location_id: '',
@@ -389,12 +399,16 @@ export class PurchasesComponent implements OnInit {
     })
       .pipe(
         takeUntilDestroyed(this.#destroyRef),
-        finalize(() => this.saving = false)
+        finalize(() => {
+          this.saving = false;
+          this.#changeDetector.markForCheck();
+        })
       )
       .subscribe({
         next: ({ data }) => {
           this.purchaseModalVisible = false;
           this.successMessage = `Compra #${data.id} recibida y agregada al inventario.`;
+          this.lastPaymentReceiptUrl = '';
           this.load(1);
         },
         error: (error: unknown) => this.formError = getApiErrorMessage(error)
@@ -404,6 +418,7 @@ export class PurchasesComponent implements OnInit {
   openPayment(purchase: Purchase): void {
     this.selectedPurchase = purchase;
     this.formError = '';
+    this.lastPaymentReceiptUrl = '';
     this.paymentForm.reset({
       cash_session_id: '',
       payment_method: 'cash',
@@ -426,12 +441,12 @@ export class PurchasesComponent implements OnInit {
   paymentAppliedAmount(): string {
     const amount = this.paymentForm.controls.amount.value;
     const rate = this.paymentForm.controls.exchange_rate.value;
-    if (!amount) {
+    if (amount === '') {
       return '0.000000';
     }
     return this.paymentRequiresExchangeRate() && rate
-      ? multiplyDecimalsToSix(amount, rate)
-      : scaledToDecimal(decimalToScaled(amount, 6), 6);
+      ? multiplyDecimalsToSix(String(amount), String(rate))
+      : scaledToDecimal(decimalToScaled(String(amount), 6), 6);
   }
 
   savePayment(): void {
@@ -450,6 +465,10 @@ export class PurchasesComponent implements OnInit {
       this.formError = `Indica cuántas unidades de ${purchase.currency} corresponden a una unidad de ${session.currency}.`;
       return;
     }
+    if (decimalToScaled(this.paymentAppliedAmount(), 6) > decimalToScaled(this.remaining(purchase), 6)) {
+      this.formError = 'El pago aplicado supera el saldo pendiente de la compra.';
+      return;
+    }
     if (!window.confirm(`¿Confirmas registrar el pago de ${values.amount} ${session.currency}?`)) {
       return;
     }
@@ -457,22 +476,29 @@ export class PurchasesComponent implements OnInit {
     const body: SalePaymentInput = {
       cash_session_id: session.id,
       payment_method: values.payment_method,
-      amount: values.amount,
-      ...(session.currency !== purchase.currency ? { exchange_rate: values.exchange_rate } : {})
+      amount: this.normalizeDecimal(values.amount, 6),
+      ...(session.currency !== purchase.currency ? { exchange_rate: this.normalizeDecimal(values.exchange_rate, 6) } : {})
     };
     this.saving = true;
     this.#purchases.pay(purchase.id, body)
       .pipe(
         takeUntilDestroyed(this.#destroyRef),
-        finalize(() => this.saving = false)
+        finalize(() => {
+          this.saving = false;
+          this.#changeDetector.markForCheck();
+        })
       )
       .subscribe({
-        next: () => {
+        next: ({ data }) => {
           this.paymentModalVisible = false;
           this.successMessage = 'Pago a proveedor registrado correctamente.';
+          this.lastPaymentReceiptUrl = this.#purchases.paymentReceiptUrl(purchase.id, data.id);
           this.load();
         },
-        error: (error: unknown) => this.formError = getApiErrorMessage(error)
+        error: (error: unknown) => {
+          this.formError = getApiErrorMessage(error);
+          this.#changeDetector.markForCheck();
+        }
       });
   }
 
@@ -480,6 +506,10 @@ export class PurchasesComponent implements OnInit {
     const applied = sumDecimals(purchase.payments.map((payment) => payment.applied_amount));
     const remaining = decimalToScaled(purchase.total, 6) - decimalToScaled(applied, 6);
     return scaledToDecimal(remaining > 0n ? remaining : 0n, 6);
+  }
+
+  paymentReceiptUrl(purchase: Purchase, payment: PurchasePayment): string {
+    return this.#purchases.paymentReceiptUrl(purchase.id, payment.id);
   }
 
   private createLine(): PurchaseLineForm {
@@ -513,8 +543,8 @@ export class PurchasesComponent implements OnInit {
     return name.includes('res') || name.includes('canal');
   }
 
-  private normalizeDecimal(value: string, scale: number): string {
-    const trimmed = value.trim().replace(',', '.');
+  private normalizeDecimal(value: string | number, scale: number): string {
+    const trimmed = String(value).trim().replace(',', '.');
     if (!/^\d+(?:\.\d+)?$/.test(trimmed)) {
       return trimmed;
     }

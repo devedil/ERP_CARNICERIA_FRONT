@@ -47,7 +47,16 @@
                 <tbody>
                   @for (sale of sales; track sale.id) {
                     <tr>
-                      <td>{{ sale.document_number || ('Venta #' + sale.id) }}</td>
+                      <td>
+                        <button
+                          type="button"
+                          class="btn btn-link p-0 text-start"
+                          (click)="openSaleDetails(sale)"
+                          [attr.aria-label]="'Ver artículos de ' + (sale.document_number || ('Venta #' + sale.id))"
+                        >
+                          {{ sale.document_number || ('Venta #' + sale.id) }}
+                        </button>
+                      </td>
                       <td>{{ sale.sold_at }}</td>
                       <td>{{ sale.customer?.name ?? 'Público general' }}</td>
                       <td>{{ sale.total }} {{ sale.currency }}</td>
@@ -94,6 +103,58 @@
       </c-card>
     }
 
+    <c-modal [(visible)]="saleDetailsModalVisible" alignment="center" backdrop="static" [keyboard]="false" size="lg">
+      <c-modal-header>
+        <h5 cModalTitle>
+          Artículos de {{ selectedSaleDetails?.document_number || ('Venta #' + selectedSaleDetails?.id) }}
+        </h5>
+        <button cButtonClose (click)="saleDetailsModalVisible = false"></button>
+      </c-modal-header>
+      <c-modal-body>
+        @if (selectedSaleDetails; as sale) {
+          <div class="d-flex flex-wrap justify-content-between gap-2 mb-3">
+            <div>
+              <div><strong>Cliente:</strong> {{ sale.customer?.name ?? 'Público general' }}</div>
+              <div><strong>Fecha:</strong> {{ sale.sold_at }}</div>
+            </div>
+            <div class="text-end">
+              <div><strong>Total:</strong> {{ sale.total }} {{ sale.currency }}</div>
+              <div><strong>Estado:</strong> {{ sale.status }}</div>
+            </div>
+          </div>
+          @if (sale.lines.length === 0) {
+            <div class="text-center text-body-secondary py-3">Esta venta no tiene artículos registrados.</div>
+          } @else {
+            <div class="table-responsive">
+              <table cTable [striped]="true" [hover]="true">
+                <thead>
+                  <tr>
+                    <th scope="col">Artículo</th>
+                    <th scope="col">Cantidad</th>
+                    <th scope="col">Precio unitario</th>
+                    <th scope="col">Subtotal</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (line of sale.lines; track line.id) {
+                    <tr>
+                      <td>{{ line.product.name }}</td>
+                      <td>{{ line.quantity }} {{ line.unit?.name ?? line.product.base_unit }}</td>
+                      <td>{{ line.unit_price }} {{ sale.currency }}</td>
+                      <td>{{ line.line_total }} {{ sale.currency }}</td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+          }
+        }
+      </c-modal-body>
+      <c-modal-footer>
+        <button cButton color="secondary" variant="outline" type="button" (click)="saleDetailsModalVisible = false">Cerrar</button>
+      </c-modal-footer>
+    </c-modal>
+
     <c-modal [(visible)]="saleModalVisible" alignment="center" backdrop="static" [keyboard]="false" size="xl">
       <c-modal-header>
         <h5 cModalTitle>Nueva venta POS</h5>
@@ -112,7 +173,7 @@
             </div>
           } @else {
             <div class="alert alert-info" role="status">
-              Precios en USD; total en VES. Tasa oficial: 1 USD = {{ exchangeRate.rate }} VES.
+              Precios y equivalentes en USD y VES. Tasa oficial: 1 USD = {{ exchangeRate.rate }} VES.
             </div>
           }
           <c-row class="g-3 mb-4">
@@ -161,7 +222,7 @@
               <c-row class="g-2 align-items-end mb-3" [formGroupName]="index">
                 <c-col md="4">
                   <label cLabel [for]="'sale-product-' + index">Producto</label>
-                  <select cSelect [id]="'sale-product-' + index" formControlName="product_id" (change)="onProductChanged(index)">
+                  <select cSelect [id]="'sale-product-' + index" formControlName="product_id" (change)="captureProductValue(index, $event)">
                     <option value="">Buscar producto</option>
                     @for (product of products; track product.id) {
                       <option [value]="product.id">{{ product.name }} ({{ product.base_unit }})</option>
@@ -170,7 +231,7 @@
                 </c-col>
                 <c-col md="3">
                   <label cLabel [for]="'sale-unit-' + index">Unidad / precio</label>
-                  <select cSelect [id]="'sale-unit-' + index" formControlName="unit_id">
+                  <select cSelect [id]="'sale-unit-' + index" formControlName="unit_id" (change)="captureLineValue(index, 'unit_id', $event)">
                     <option value="">Unidad base</option>
                     @for (price of availablePrices(line); track price.id) {
                       @if (price.unit) {
@@ -183,11 +244,13 @@
                 </c-col>
                 <c-col md="2">
                   <label cLabel [for]="'sale-quantity-' + index">Cantidad</label>
-                  <input cFormControl [id]="'sale-quantity-' + index" type="number" min="0.001" step="0.001" formControlName="quantity" />
+                  <input cFormControl [id]="'sale-quantity-' + index" type="number" min="0.001" step="0.001" formControlName="quantity" (input)="captureLineValue(index, 'quantity', $event)" />
                 </c-col>
                 <c-col md="2">
                   <label cLabel>Subtotal</label>
-                  <div class="form-control bg-body-secondary">{{ estimatedLineTotal(line) }} VES</div>
+                  <div class="form-control bg-body-secondary">
+                    {{ estimatedLineTotal(line) }} VES · {{ estimatedLineTotalUsd(line) }} USD
+                  </div>
                 </c-col>
                 <c-col md="1">
                   <button cButton color="danger" variant="outline" type="button" class="w-100" [disabled]="lines.length <= 1" (click)="removeLine(index)">
@@ -220,6 +283,13 @@
                 </select>
               </c-col>
             </c-row>
+            @if (!sessionsLoading && sessionsError) {
+              <div class="alert alert-danger mt-3 mb-0" role="alert">{{ sessionsError }}</div>
+            } @else if (!sessionsLoading && openSessionsForCurrency().length === 0) {
+              <div class="alert alert-warning mt-3 mb-0" role="status">
+                No hay cajas con sesión abierta en VES. Abre una caja en bolívares para registrar una venta de contado.
+              </div>
+            }
           }
           <c-row class="g-3 mt-2">
             <c-col xs="12">
@@ -228,12 +298,21 @@
             </c-col>
           </c-row>
           <div class="d-flex justify-content-end mt-3">
-            <strong class="h5 mb-0">Total estimado: {{ estimatedTotal() }} VES</strong>
+            <strong class="h5 mb-0">
+              Total estimado: {{ estimatedTotal() }} VES · {{ estimatedTotalUsd() }} USD
+            </strong>
           </div>
         </c-modal-body>
         <c-modal-footer>
           <button cButton color="secondary" variant="outline" type="button" [disabled]="saving" (click)="saleModalVisible = false">Cancelar</button>
-          <button cButton color="primary" type="submit" [disabled]="saving || exchangeRateLoading || !exchangeRate || !!exchangeRateError">{{ saving ? 'Procesando...' : 'Registrar venta' }}</button>
+          <button
+            cButton
+            color="primary"
+            type="submit"
+            [disabled]="saving || sessionsLoading || exchangeRateLoading || !exchangeRate || !!exchangeRateError || (saleForm.controls.payment_mode.value === 'immediate' && openSessionsForCurrency().length === 0)"
+          >
+            {{ saving ? 'Procesando...' : 'Registrar venta' }}
+          </button>
         </c-modal-footer>
       </form>
     </c-modal>

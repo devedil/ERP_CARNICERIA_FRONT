@@ -56,6 +56,11 @@ export const routes: Routes = [
         data: { title: 'Ventas' }
       },
       {
+        path: 'customer-accounts',
+        loadComponent: () => import('./features/customer-account.component').then((m) => m.CustomerAccountComponent),
+        data: { title: 'Estado de cuenta de clientes' }
+      },
+      {
         path: 'purchases',
         loadComponent: () => import('./features/purchases.component').then((m) => m.PurchasesComponent),
         data: { title: 'Compras' }
