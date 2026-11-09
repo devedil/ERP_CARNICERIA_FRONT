@@ -489,20 +489,29 @@ export class InventoryComponent implements OnInit {
       return;
     }
 
-    this.saving = true;
-    this.formError = '';
-    this.#inventory.process({
+    const sourceQuantity = this.normalizeDecimal(values.source_quantity, 3);
+    const wasteQuantity = this.normalizeDecimal(values.waste_quantity || '0', 3);
+    const outputs = values.outputs.flatMap((output) => {
+      const quantity = this.normalizeDecimal(output.quantity, 3);
+      return quantity === null ? [] : [{ product_id: Number(output.product_id), quantity }];
+    });
+    if (!sourceQuantity || !wasteQuantity || outputs.length !== values.outputs.length) {
+      this.formError = 'Revisa los pesos ingresados. Deben ser valores numéricos válidos con hasta tres decimales.';
+      return;
+    }
+
+    const body = {
       source_product_id: Number(values.source_product_id),
       source_inventory_item_id: Number(values.source_inventory_item_id),
       inventory_location_id: Number(values.inventory_location_id),
-      source_quantity: this.normalizeDecimal(values.source_quantity, 3),
-      waste_quantity: this.normalizeDecimal(values.waste_quantity || '0', 3),
+      source_quantity: sourceQuantity,
+      waste_quantity: wasteQuantity,
       reason: values.reason.trim(),
-      outputs: values.outputs.map((output) => ({
-        product_id: Number(output.product_id),
-        quantity: this.normalizeDecimal(output.quantity, 3)
-      }))
-    })
+      outputs
+    };
+    this.saving = true;
+    this.formError = '';
+    this.#inventory.process(body)
       .pipe(
         takeUntilDestroyed(this.#destroyRef),
         finalize(() => this.saving = false)
@@ -557,10 +566,16 @@ export class InventoryComponent implements OnInit {
     });
   }
 
-  private normalizeDecimal(value: string, scale: number): string {
-    const normalized = value.trim().replace(',', '.');
+  private normalizeDecimal(value: unknown, scale: number): string | null {
+    if (typeof value !== 'string' && typeof value !== 'number') {
+      return null;
+    }
+    if (typeof value === 'number' && !Number.isFinite(value)) {
+      return null;
+    }
+    const normalized = String(value).trim().replace(',', '.');
     if (!/^\d+(?:\.\d+)?$/.test(normalized)) {
-      return normalized;
+      return null;
     }
     return scaledToDecimal(decimalToScaled(normalized, scale), scale);
   }
