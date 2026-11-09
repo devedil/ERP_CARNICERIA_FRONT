@@ -142,7 +142,7 @@ export class PurchasesComponent implements OnInit {
       suppliers: this.#suppliersApi.list(),
       products: this.#productsApi.list(),
       locations: this.#inventoryApi.locations(),
-      sessions: this.#cashApi.sessions()
+      sessions: this.#cashApi.openSessions()
     })
       .pipe(
         takeUntilDestroyed(this.#destroyRef),

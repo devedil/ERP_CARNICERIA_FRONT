@@ -6,6 +6,7 @@ import { ApiService } from '../api.service';
 import {
   ApiCollection,
   ApiItem,
+  CashRegister,
   CashExpenseCategory,
   CashMovement,
   CashSession,
@@ -17,8 +18,20 @@ import {
 export class CashService {
   readonly #api = inject(ApiService);
 
-  sessions(page = 1): Observable<PaginatedCollection<CashSession>> {
-    return this.#api.get('cash/sessions', new HttpParams().set('per_page', '20').set('page', String(page)));
+  sessions(page = 1, status?: 'open' | 'closed', perPage = 20): Observable<PaginatedCollection<CashSession>> {
+    let params = new HttpParams().set('per_page', String(perPage)).set('page', String(page));
+    if (status) {
+      params = params.set('status', status);
+    }
+    return this.#api.get('cash/sessions', params);
+  }
+
+  openSessions(): Observable<PaginatedCollection<CashSession>> {
+    return this.sessions(1, 'open', 100);
+  }
+
+  registers(): Observable<ApiCollection<CashRegister>> {
+    return this.#api.get('cash/registers');
   }
 
   open(body: {

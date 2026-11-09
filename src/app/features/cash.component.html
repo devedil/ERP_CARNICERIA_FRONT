@@ -6,7 +6,7 @@
         <p class="text-body-secondary mb-0">Sesiones, ingresos, egresos y cierre de caja.</p>
       </div>
       <div class="d-flex gap-2">
-        <button cButton color="primary" type="button" (click)="openSession()">Abrir sesión</button>
+        <button cButton color="primary" type="button" (click)="openSession()" [disabled]="loading || registers.length === 0">Abrir sesión</button>
         <button cButton color="secondary" variant="outline" type="button" (click)="load()" [disabled]="loading">
           Actualizar
         </button>
@@ -25,6 +25,9 @@
     } @else if (pageError) {
       <div class="alert alert-danger" role="alert">{{ pageError }}</div>
     } @else {
+      @if (registers.length === 0) {
+        <div class="alert alert-warning" role="status">No hay cajas registradoras activas. Configura una caja para poder abrir una sesión.</div>
+      }
       <c-card class="mb-4">
         <c-card-header><strong>Sesiones de caja</strong></c-card-header>
         <c-card-body>
@@ -107,6 +110,25 @@
                 <c-card-body class="h5 mb-0">{{ summary.expected_amount }} {{ summary.currency }}</c-card-body>
               </c-card>
             </c-col>
+            @if (session.status === 'closed') {
+              <c-col md="6">
+                <c-card>
+                  <c-card-header><strong>Monto contado al cierre</strong></c-card-header>
+                  <c-card-body>{{ session.closing_amount }} {{ session.currency }}</c-card-body>
+                </c-card>
+              </c-col>
+              <c-col md="6">
+                <c-card>
+                  <c-card-header><strong>Diferencia del cierre</strong></c-card-header>
+                  <c-card-body
+                    [class.text-danger]="summary.closing_difference && summary.closing_difference !== '0.000000'"
+                    [class.text-success]="summary.closing_difference === '0.000000'"
+                  >
+                    {{ summary.closing_difference ?? '0.000000' }} {{ session.currency }}
+                  </c-card-body>
+                </c-card>
+              </c-col>
+            }
           </c-row>
         }
 
@@ -156,17 +178,22 @@
           @if (formError) {
             <div class="alert alert-danger" role="alert">{{ formError }}</div>
           }
-          <div class="alert alert-info" role="note">
-            El backend aún no expone un listado de cajas registradoras. Ingresa el ID de una caja activa existente.
-          </div>
           <c-row class="g-3">
             <c-col md="6">
-              <label cLabel for="cash-register-id">ID de caja registradora</label>
-              <input cFormControl id="cash-register-id" type="number" min="1" step="1" formControlName="cash_register_id" />
+              <label cLabel for="cash-register-id">Caja registradora</label>
+              <select cSelect id="cash-register-id" formControlName="cash_register_id">
+                <option value="">Selecciona una caja</option>
+                @for (register of registers; track register.id) {
+                  <option [value]="register.id">{{ register.name }} ({{ register.code }})</option>
+                }
+              </select>
             </c-col>
             <c-col md="6">
               <label cLabel for="cash-currency">Moneda</label>
-              <input cFormControl id="cash-currency" type="text" maxlength="3" formControlName="currency" placeholder="VES" />
+              <select cSelect id="cash-currency" formControlName="currency">
+                <option value="VES">VES</option>
+                <option value="USD">USD</option>
+              </select>
             </c-col>
             <c-col md="6">
               <label cLabel for="cash-opening-amount">Monto inicial</label>
@@ -246,6 +273,10 @@
             <c-col md="6">
               <label cLabel for="cash-closing-amount">Monto contado al cierre</label>
               <input cFormControl id="cash-closing-amount" type="number" min="0" step="0.000001" formControlName="closing_amount" />
+              <div class="form-text">
+                Diferencia que se registrará: {{ closingDifference() }} {{ summary?.currency }}.
+                Un valor positivo indica sobrante y uno negativo, faltante.
+              </div>
             </c-col>
             <c-col md="6">
               <label cLabel for="cash-close-notes">Notas de cierre</label>

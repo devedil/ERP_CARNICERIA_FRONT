@@ -1,4 +1,4 @@
-import { Component, DestroyRef, inject, OnInit } from '@angular/core';
+import { ChangeDetectorRef, Component, DestroyRef, inject, OnInit } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormControl, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
 import {
@@ -26,10 +26,12 @@ import { getApiErrorMessage } from '../core/api-error';
 import {
   CashExpenseCategory,
   CashMovement,
+  CashRegister,
   CashSession,
   CashSessionSummary
 } from '../core/models/catalog.models';
 import { CashService } from '../core/services/cash.service';
+import { decimalToScaled, scaledToDecimal } from '../core/utils/decimal';
 
 @Component({
   selector: 'app-cash',
@@ -58,8 +60,10 @@ import { CashService } from '../core/services/cash.service';
 export class CashComponent implements OnInit {
   readonly #destroyRef = inject(DestroyRef);
   readonly #cash = inject(CashService);
+  readonly #changeDetector = inject(ChangeDetectorRef);
 
   sessions: CashSession[] = [];
+  registers: CashRegister[] = [];
   movements: CashMovement[] = [];
   expenseCategories: CashExpenseCategory[] = [];
   summary: CashSessionSummary | null = null;
@@ -117,15 +121,20 @@ export class CashComponent implements OnInit {
     this.pageError = '';
     forkJoin({
       sessions: this.#cash.sessions(),
+      registers: this.#cash.registers(),
       expenseCategories: this.#cash.expenseCategories()
     })
       .pipe(
         takeUntilDestroyed(this.#destroyRef),
-        finalize(() => this.loading = false)
-      )
+      finalize(() => {
+        this.loading = false;
+        this.#changeDetector.markForCheck();
+      })
+    )
       .subscribe({
         next: (result) => {
           this.sessions = result.sessions.data;
+          this.registers = result.registers.data;
           this.expenseCategories = result.expenseCategories.data;
           if (!this.selectedSessionId || !this.sessions.some((session) => String(session.id) === this.selectedSessionId)) {
             this.selectedSessionId = String(this.sessions.find((session) => session.status === 'open')?.id ?? this.sessions[0]?.id ?? '');
@@ -136,8 +145,12 @@ export class CashComponent implements OnInit {
             this.summary = null;
             this.movements = [];
           }
+          this.#changeDetector.markForCheck();
         },
-        error: (error: unknown) => this.pageError = getApiErrorMessage(error)
+        error: (error: unknown) => {
+          this.pageError = getApiErrorMessage(error);
+          this.#changeDetector.markForCheck();
+        }
       });
   }
 
@@ -167,15 +180,19 @@ export class CashComponent implements OnInit {
         next: (result) => {
           this.summary = result.summary.data;
           this.movements = result.movements.data;
+          this.#changeDetector.markForCheck();
         },
-        error: (error: unknown) => this.pageError = getApiErrorMessage(error)
+        error: (error: unknown) => {
+          this.pageError = getApiErrorMessage(error);
+          this.#changeDetector.markForCheck();
+        }
       });
   }
 
   openSession(): void {
     this.formError = '';
     this.openForm.reset({
-      cash_register_id: '',
+      cash_register_id: this.registers.length === 1 ? String(this.registers[0].id) : '',
       currency: 'VES',
       opening_amount: '0',
       notes: ''
@@ -199,16 +216,23 @@ export class CashComponent implements OnInit {
     })
       .pipe(
         takeUntilDestroyed(this.#destroyRef),
-        finalize(() => this.saving = false)
+        finalize(() => {
+          this.saving = false;
+          this.#changeDetector.markForCheck();
+        })
       )
       .subscribe({
         next: ({ data }) => {
           this.openModalVisible = false;
           this.selectedSessionId = String(data.id);
           this.successMessage = `Sesión de caja #${data.id} abierta.`;
+          this.#changeDetector.markForCheck();
           this.load();
         },
-        error: (error: unknown) => this.formError = getApiErrorMessage(error)
+        error: (error: unknown) => {
+          this.formError = getApiErrorMessage(error);
+          this.#changeDetector.markForCheck();
+        }
       });
   }
 
@@ -244,15 +268,22 @@ export class CashComponent implements OnInit {
     })
       .pipe(
         takeUntilDestroyed(this.#destroyRef),
-        finalize(() => this.saving = false)
+        finalize(() => {
+          this.saving = false;
+          this.#changeDetector.markForCheck();
+        })
       )
       .subscribe({
         next: () => {
           this.movementModalVisible = false;
           this.successMessage = `${values.movement_type === 'income' ? 'Ingreso' : 'Egreso'} registrado correctamente.`;
+          this.#changeDetector.markForCheck();
           this.loadDetails(sessionId);
         },
-        error: (error: unknown) => this.formError = getApiErrorMessage(error)
+        error: (error: unknown) => {
+          this.formError = getApiErrorMessage(error);
+          this.#changeDetector.markForCheck();
+        }
       });
   }
 
@@ -260,6 +291,18 @@ export class CashComponent implements OnInit {
     this.formError = '';
     this.closeForm.reset({ closing_amount: this.summary?.expected_amount ?? '', notes: '' });
     this.closeModalVisible = true;
+  }
+
+  closingDifference(): string {
+    const expected = this.summary?.expected_amount;
+    const closing = this.closeForm.controls.closing_amount.value;
+    if (!expected || !closing || !/^\d+(?:\.\d{1,6})?$/.test(closing)) {
+      return '0.000000';
+    }
+    return scaledToDecimal(
+      decimalToScaled(closing, 6) - decimalToScaled(expected, 6),
+      6
+    );
   }
 
   saveCloseSession(): void {
@@ -280,15 +323,22 @@ export class CashComponent implements OnInit {
     })
       .pipe(
         takeUntilDestroyed(this.#destroyRef),
-        finalize(() => this.saving = false)
+        finalize(() => {
+          this.saving = false;
+          this.#changeDetector.markForCheck();
+        })
       )
       .subscribe({
         next: () => {
           this.closeModalVisible = false;
           this.successMessage = 'Sesión de caja cerrada correctamente.';
+          this.#changeDetector.markForCheck();
           this.load();
         },
-        error: (error: unknown) => this.formError = getApiErrorMessage(error)
+        error: (error: unknown) => {
+          this.formError = getApiErrorMessage(error);
+          this.#changeDetector.markForCheck();
+        }
       });
   }
 }

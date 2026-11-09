@@ -157,7 +157,7 @@ export class SalesComponent implements OnInit {
       customers: this.#customersApi.list(),
       priceLists: this.#priceListsApi.list(true),
       locations: this.#inventoryApi.locations(),
-      sessions: this.#cashApi.sessions(),
+      sessions: this.#cashApi.openSessions(),
       exchangeRate: this.#exchangeRatesApi.current().pipe(
         catchError((error: unknown) => {
           this.exchangeRateError = getApiErrorMessage(error);

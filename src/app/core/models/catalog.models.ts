@@ -248,6 +248,7 @@ export interface CashSession {
   currency: string;
   opening_amount: string;
   closing_amount: string | null;
+  closing_difference: string | null;
   status: string;
   opened_at: string;
   closed_at: string | null;
@@ -272,6 +273,7 @@ export interface CashSessionSummary {
   income: string;
   expense: string;
   expected_amount: string;
+  closing_difference: string | null;
   status: string;
 }
 
