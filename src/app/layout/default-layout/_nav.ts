@@ -27,6 +27,11 @@ export const navItems: INavData[] = [
     iconComponent: { name: 'cil-layers' }
   },
   {
+    name: 'Control de reses',
+    url: '/cattle-control',
+    iconComponent: { name: 'cil-notes' }
+  },
+  {
     name: 'Créditos de clientes',
     url: '/customer-accounts',
     iconComponent: { name: 'cil-wallet' }

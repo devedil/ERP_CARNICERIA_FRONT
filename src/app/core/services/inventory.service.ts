@@ -49,8 +49,14 @@ export class InventoryService {
     return this.#api.get('inventory/locations');
   }
 
-  items(productId?: number, locationId?: number): Observable<PaginatedCollection<InventoryItem>> {
-    let params = new HttpParams().set('per_page', '100');
+  items(
+    productId?: number,
+    locationId?: number,
+    page = 1
+  ): Observable<PaginatedCollection<InventoryItem>> {
+    let params = new HttpParams()
+      .set('per_page', '100')
+      .set('page', String(page));
     if (productId) params = params.set('product_id', String(productId));
     if (locationId) params = params.set('inventory_location_id', String(locationId));
     return this.#api.get('inventory/items', params);
@@ -60,8 +66,11 @@ export class InventoryService {
     return this.#api.get('inventory/transfers');
   }
 
-  processings(): Observable<PaginatedCollection<InventoryProcessing>> {
-    return this.#api.get('inventory/processings');
+  processings(page = 1, perPage = 100): Observable<PaginatedCollection<InventoryProcessing>> {
+    const params = new HttpParams()
+      .set('page', String(page))
+      .set('per_page', String(perPage));
+    return this.#api.get('inventory/processings', params);
   }
 
   process(body: {

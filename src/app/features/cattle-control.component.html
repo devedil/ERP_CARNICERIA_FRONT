@@ -1,0 +1,267 @@
+<div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-4">
+  <div>
+    <h1 class="h3 mb-1">Control de reses</h1>
+    <p class="text-body-secondary mb-0">Consulta el ingreso, desposte y rendimiento económico estimado de cada res.</p>
+  </div>
+  <button cButton color="secondary" variant="outline" type="button" [disabled]="loading" (click)="load()">
+    {{ loading ? 'Actualizando...' : 'Actualizar' }}
+  </button>
+</div>
+
+@if (pageError) {
+  <div class="alert alert-danger" role="alert">{{ pageError }}</div>
+}
+@if (priceError) {
+  <div class="alert alert-warning" role="alert">{{ priceError }}</div>
+}
+@if (filterError) {
+  <div class="alert alert-warning" role="alert">{{ filterError }}</div>
+}
+@if (pricesLoading) {
+  <div class="text-body-secondary small mb-3">Consultando los precios Detal USD de los subproductos...</div>
+}
+<div class="alert alert-info" role="note">
+  La utilidad se estima con los precios Detal USD vigentes y no representa ventas realizadas. No incluye gastos adicionales, descuentos ni devoluciones.
+</div>
+
+<c-card class="mb-4">
+  <c-card-header><strong>Filtros</strong></c-card-header>
+  <c-card-body>
+    <form cForm [formGroup]="filters" (ngSubmit)="applyFilters()">
+      <c-row class="g-3 align-items-end">
+        <c-col sm="6" xl="2">
+          <label cLabel for="cattle-from">Recibidas desde</label>
+          <input cFormControl id="cattle-from" type="date" formControlName="from" />
+        </c-col>
+        <c-col sm="6" xl="2">
+          <label cLabel for="cattle-to">Recibidas hasta</label>
+          <input cFormControl id="cattle-to" type="date" formControlName="to" />
+        </c-col>
+        <c-col sm="6" xl="2">
+          <label cLabel for="cattle-location">Almacén</label>
+          <select cSelect id="cattle-location" formControlName="locationId">
+            <option value="">Todos</option>
+            @for (location of locations; track location.id) {
+              <option [value]="location.id">{{ location.name }}</option>
+            }
+          </select>
+        </c-col>
+        <c-col sm="6" xl="2">
+          <label cLabel for="cattle-supplier">Proveedor</label>
+          <select cSelect id="cattle-supplier" formControlName="supplier">
+            <option value="">Todos</option>
+            @for (supplier of suppliers; track supplier) {
+              <option [value]="supplier">{{ supplier }}</option>
+            }
+          </select>
+        </c-col>
+        <c-col sm="6" xl="2">
+          <label cLabel for="cattle-status">Estado</label>
+          <select cSelect id="cattle-status" formControlName="status">
+            <option value="">Todos</option>
+            <option value="pending_processing">Pendiente de desposte</option>
+            <option value="processed">Despostada</option>
+          </select>
+        </c-col>
+        <c-col sm="6" xl="2" class="d-flex gap-2">
+          <button cButton color="primary" type="submit" class="flex-grow-1">Filtrar</button>
+          <button cButton color="secondary" variant="outline" type="button" (click)="clearFilters()">Limpiar</button>
+        </c-col>
+      </c-row>
+    </form>
+  </c-card-body>
+</c-card>
+
+@if (loading && !records.length) {
+  <div class="text-center text-body-secondary py-5">Cargando reses y despostes...</div>
+} @else {
+  <c-row class="g-4 mb-4">
+    <c-col sm="6" xl="3">
+      <c-card class="h-100 border-start border-start-4 border-start-warning">
+        <c-card-body>
+          <div class="text-body-secondary small">Pendientes de desposte</div>
+          <div class="fs-4 fw-semibold">{{ pendingCount }}</div>
+          <div class="small text-body-secondary mt-2">Reses disponibles en el inventario</div>
+        </c-card-body>
+      </c-card>
+    </c-col>
+    <c-col sm="6" xl="3">
+      <c-card class="h-100 border-start border-start-4 border-start-primary">
+        <c-card-body>
+          <div class="text-body-secondary small">Reses despostadas</div>
+          <div class="fs-4 fw-semibold">{{ processedCount }}</div>
+          <div class="small text-body-secondary mt-2">Costo de compra: {{ formatOptionalMoney(processedCost) }}</div>
+        </c-card-body>
+      </c-card>
+    </c-col>
+    <c-col sm="6" xl="3">
+      <c-card class="h-100 border-start border-start-4 border-start-info">
+        <c-card-body>
+          <div class="text-body-secondary small">Valor comercial estimado</div>
+          <div class="fs-5 fw-semibold">{{ formatOptionalMoney(estimatedRevenue) }}</div>
+          <div class="small text-body-secondary mt-2">A precio Detal USD vigente</div>
+        </c-card-body>
+      </c-card>
+    </c-col>
+    <c-col sm="6" xl="3">
+      <c-card class="h-100 border-start border-start-4 border-start-success">
+        <c-card-body>
+          <div class="text-body-secondary small">Utilidad bruta estimada</div>
+          <div class="fs-5 fw-semibold">{{ formatOptionalMoney(estimatedProfit) }}</div>
+          <div class="small text-body-secondary mt-2">Margen {{ estimatedMargin }} · Ganancia sobre costo {{ estimatedReturn }}</div>
+        </c-card-body>
+      </c-card>
+    </c-col>
+  </c-row>
+
+  <c-row class="g-4 mb-4">
+    <c-col xs="12" xl="8">
+      <c-card class="h-100">
+        <c-card-header>Reses ingresadas al sistema</c-card-header>
+        <c-card-body>
+          @if (!filteredRecords.length) {
+            <div class="text-center text-body-secondary py-5">No hay reses para los filtros seleccionados.</div>
+          } @else {
+            <div class="table-responsive">
+              <table cTable [striped]="true" [hover]="true">
+                <thead>
+                  <tr>
+                    <th scope="col">Res / compra</th>
+                    <th scope="col">Ingreso</th>
+                    <th scope="col">Proveedor</th>
+                    <th scope="col">Peso</th>
+                    <th scope="col">Costo</th>
+                    <th scope="col">Rendimiento</th>
+                    <th scope="col">Utilidad estimada</th>
+                    <th scope="col">Estado</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (record of filteredRecords; track record.key) {
+                    <tr role="button" tabindex="0" [attr.aria-label]="'Ver detalle de la res ' + record.identifier" (click)="selectRecord(record)" (keydown.enter)="selectRecord(record)" (keydown.space)="selectRecord(record); $event.preventDefault()">
+                      <td>
+                        <div class="fw-semibold">{{ record.identifier }}</div>
+                        <small class="text-body-secondary">{{ record.purchase || record.productName }}</small>
+                      </td>
+                      <td>{{ formatDate(record.receivedAt) }}</td>
+                      <td>{{ record.supplier || '—' }}</td>
+                      <td>{{ formatQuantity(record.weight) }} kg</td>
+                      <td>{{ formatOptionalMoney(record.cost, record.currency) }}</td>
+                      <td>
+                        @if (record.status === 'processed') {
+                          {{ yieldPercent(record) }}% · merma {{ wastePercent(record) }}%
+                        } @else {
+                          —
+                        }
+                      </td>
+                      <td>
+                        @if (record.status === 'processed') {
+                          {{ formatOptionalMoney(recordProfit(record)) }}
+                        } @else {
+                          —
+                        }
+                      </td>
+                      <td>
+                        <span class="badge" [class.text-bg-success]="record.status === 'processed'" [class.text-bg-warning]="record.status === 'pending_processing'">
+                          {{ record.status === 'processed' ? 'Despostada' : 'Pendiente' }}
+                        </span>
+                      </td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+          }
+        </c-card-body>
+      </c-card>
+    </c-col>
+    <c-col xs="12" xl="4">
+      <c-card class="h-100">
+        <c-card-header>Valor estimado por subproducto</c-card-header>
+        <c-card-body>
+          @if (chartData.labels?.length) {
+            <c-chart [data]="chartData" [options]="chartOptions" [height]="300" type="doughnut">
+              Valor de subproductos
+            </c-chart>
+          } @else {
+            <div class="text-center text-body-secondary py-5">No hay despostes con precios disponibles.</div>
+          }
+        </c-card-body>
+      </c-card>
+    </c-col>
+  </c-row>
+}
+
+<c-modal [(visible)]="detailsVisible" alignment="center" size="xl">
+  @if (selectedRecord; as record) {
+    <c-modal-header>
+      <h5 cModalTitle>Detalle de res {{ record.identifier }}</h5>
+      <button cButtonClose (click)="detailsVisible = false"></button>
+    </c-modal-header>
+    <c-modal-body>
+      <c-row class="g-3 mb-4">
+        <c-col sm="6" lg="3"><div class="text-body-secondary small">Producto</div><strong>{{ record.productName }}</strong></c-col>
+        <c-col sm="6" lg="3"><div class="text-body-secondary small">Proveedor / compra</div><strong>{{ record.supplier || '—' }} · {{ record.purchase || 'Sin comprobante' }}</strong></c-col>
+        <c-col sm="6" lg="2"><div class="text-body-secondary small">Almacén</div><strong>{{ record.locationName }}</strong></c-col>
+        <c-col sm="6" lg="2"><div class="text-body-secondary small">Peso de la res</div><strong>{{ formatQuantity(record.weight) }} kg</strong></c-col>
+        <c-col sm="6" lg="2"><div class="text-body-secondary small">Costo de compra</div><strong>{{ formatOptionalMoney(record.cost, record.currency) }}</strong></c-col>
+      </c-row>
+
+      @if (record.status === 'pending_processing') {
+        <div class="alert alert-warning mb-0">Esta res aún no tiene un desposte registrado, por lo que no es posible calcular el rendimiento ni la utilidad estimada.</div>
+      } @else {
+        <div class="d-flex flex-wrap justify-content-between gap-2 mb-2">
+          <strong>Desglose de subproductos</strong>
+          <span class="text-body-secondary small">Desposte: {{ formatDate(record.processedAt || '') }}</span>
+        </div>
+        @if (record.outputs.length) {
+          <div class="table-responsive">
+            <table cTable [striped]="true" [hover]="true">
+              <thead>
+                <tr>
+                  <th scope="col">Subproducto</th>
+                  <th scope="col">Cantidad</th>
+                  <th scope="col">Costo asignado</th>
+                  <th scope="col">Precio Detal USD actual / unidad base</th>
+                  <th scope="col">Valor estimado</th>
+                </tr>
+              </thead>
+              <tbody>
+                @for (output of record.outputs; track output.id) {
+                  <tr>
+                    <td>{{ outputName(output.product_id) }}</td>
+                    <td>{{ formatQuantity(output.quantity) }} {{ outputUnit(output.product_id) }}</td>
+                    <td>{{ formatOptionalMoney(output.allocated_cost, record.currency) }}</td>
+                    <td>{{ outputPrice(output) === '—' ? '—' : formatMoney(outputPrice(output)) }}</td>
+                    <td>{{ outputRevenue(output) === '—' ? '—' : formatMoney(outputRevenue(output)) }}</td>
+                  </tr>
+                }
+              </tbody>
+              <tfoot>
+                <tr class="fw-semibold">
+                  <td>Total subproductos</td>
+                  <td>{{ formatQuantity(outputTotal(record)) }} kg</td>
+                  <td>{{ formatOptionalMoney(record.cost, record.currency) }}</td>
+                  <td></td>
+                  <td>{{ formatOptionalMoney(recordRevenue(record)) }}</td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        } @else {
+          <div class="text-center text-body-secondary py-4">Este desposte no contiene subproductos registrados.</div>
+        }
+        <c-row class="g-3 mt-2">
+          <c-col sm="6" lg="3"><div class="text-body-secondary small">Merma</div><strong>{{ formatQuantity(record.waste) }} kg ({{ wastePercent(record) }}%)</strong></c-col>
+          <c-col sm="6" lg="3"><div class="text-body-secondary small">Rendimiento en subproductos</div><strong>{{ yieldPercent(record) }}%</strong></c-col>
+          <c-col sm="6" lg="3"><div class="text-body-secondary small">Utilidad bruta estimada</div><strong>{{ formatOptionalMoney(recordProfit(record)) }}</strong></c-col>
+          <c-col sm="6" lg="3"><div class="text-body-secondary small">Margen / ganancia sobre costo</div><strong>{{ recordMargin(record) }}</strong></c-col>
+        </c-row>
+        <div class="form-text mt-3">Los precios Detal corresponden a los valores vigentes al momento de consultar. Esta estimación no equivale a la utilidad real de venta.</div>
+      }
+    </c-modal-body>
+    <c-modal-footer>
+      <button cButton color="secondary" variant="outline" type="button" (click)="detailsVisible = false">Cerrar</button>
+    </c-modal-footer>
+  }
+</c-modal>

@@ -31,6 +31,11 @@ export const routes: Routes = [
         data: { title: 'Inventario' }
       },
       {
+        path: 'cattle-control',
+        loadComponent: () => import('./features/cattle-control.component').then((m) => m.CattleControlComponent),
+        data: { title: 'Control de reses' }
+      },
+      {
         path: 'sales',
         loadComponent: () => import('./features/sales.component').then((m) => m.SalesComponent),
         data: { title: 'Ventas' }
