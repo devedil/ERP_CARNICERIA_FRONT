@@ -28,6 +28,33 @@ export function multiplyDecimalsToSix(quantity: string, amount: string): string 
   return scaledToDecimal(rounded, 6);
 }
 
+export function multiplyDecimalValuesToSix(left: string, right: string): string {
+  const leftMicros = decimalToScaled(left, 6);
+  const rightMicros = decimalToScaled(right, 6);
+  const product = leftMicros * rightMicros;
+  const divisor = 1_000_000n;
+  const rounded = (product + (product >= 0n ? divisor / 2n : -(divisor / 2n))) / divisor;
+  return scaledToDecimal(rounded, 6);
+}
+
+export function divideDecimalsToSix(dividend: string, divisor: string): string {
+  const scaledDividend = decimalToScaled(dividend, 6);
+  const scaledDivisor = decimalToScaled(divisor, 6);
+  if (scaledDivisor === 0n) {
+    return '0.000000';
+  }
+
+  const numerator = scaledDividend * 10n ** 6n;
+  const quotient = numerator / scaledDivisor;
+  const remainder = numerator % scaledDivisor;
+  const absoluteRemainder = remainder < 0n ? -remainder : remainder;
+  const absoluteDivisor = scaledDivisor < 0n ? -scaledDivisor : scaledDivisor;
+  const shouldRound = absoluteRemainder * 2n >= absoluteDivisor;
+  const positiveResult = (numerator < 0n) === (scaledDivisor < 0n);
+  const rounded = quotient + (shouldRound ? (positiveResult ? 1n : -1n) : 0n);
+  return scaledToDecimal(rounded, 6);
+}
+
 export function sumDecimals(values: string[], scale = 6): string {
   const total = values.reduce((sum, value) => sum + decimalToScaled(value, scale), 0n);
   return scaledToDecimal(total, scale);

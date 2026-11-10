@@ -40,7 +40,14 @@ import { InventoryService } from '../core/services/inventory.service';
 import { PriceListService } from '../core/services/price-list.service';
 import { ProductService } from '../core/services/product.service';
 import { SalePaymentInput, SaleService } from '../core/services/sale.service';
-import { decimalToScaled, multiplyDecimalsToSix, scaledToDecimal, sumDecimals } from '../core/utils/decimal';
+import {
+  decimalToScaled,
+  divideDecimalsToSix,
+  multiplyDecimalValuesToSix,
+  multiplyDecimalsToSix,
+  scaledToDecimal,
+  sumDecimals
+} from '../core/utils/decimal';
 
 type SaleLineForm = FormGroup<{
   product_id: FormControl<string>;
@@ -124,10 +131,6 @@ export class SalesComponent implements OnInit {
     amount: new FormControl('', {
       nonNullable: true,
       validators: [Validators.required, Validators.pattern(/^\d+(\.\d{1,6})?$/)]
-    }),
-    exchange_rate: new FormControl('', {
-      nonNullable: true,
-      validators: [Validators.pattern(/^\d+(\.\d{1,6})?$/)]
     })
   });
 
@@ -148,6 +151,10 @@ export class SalesComponent implements OnInit {
 
   get selectedPaymentSession(): CashSession | undefined {
     return this.openSessions.find((item) => String(item.id) === this.saleForm.controls.cash_session_id.value);
+  }
+
+  get selectedCreditPaymentSession(): CashSession | undefined {
+    return this.openSessions.find((item) => String(item.id) === this.paymentForm.controls.cash_session_id.value);
   }
 
   openSessionsForCurrency(): CashSession[] {
@@ -326,7 +333,7 @@ export class SalesComponent implements OnInit {
       return '0.000000';
     }
 
-    return this.divideDecimalsToSix(this.estimatedLineTotal(line), this.exchangeRate.rate);
+    return divideDecimalsToSix(this.estimatedLineTotal(line), this.exchangeRate.rate);
   }
 
   estimatedTotal(): string {
@@ -338,7 +345,7 @@ export class SalesComponent implements OnInit {
       return '0.000000';
     }
 
-    return this.divideDecimalsToSix(this.estimatedTotal(), this.exchangeRate.rate);
+    return divideDecimalsToSix(this.estimatedTotal(), this.exchangeRate.rate);
   }
 
   saveSale(): void {
@@ -434,10 +441,39 @@ export class SalesComponent implements OnInit {
     this.paymentForm.reset({
       cash_session_id: '',
       payment_method: 'cash',
-      amount: this.remaining(sale),
-      exchange_rate: ''
+      amount: ''
     });
     this.paymentModalVisible = true;
+  }
+
+  onPaymentSessionChanged(): void {
+    this.formError = '';
+    const sale = this.selectedSale;
+    const session = this.openSessions.find((item) => String(item.id) === this.paymentForm.controls.cash_session_id.value);
+    if (!sale || !session) {
+      return;
+    }
+
+    if (session.currency === 'USD') {
+      this.paymentForm.controls.amount.setValue(this.remainingUsd(sale));
+    } else if (session.currency === 'VES' && this.exchangeRate) {
+      this.paymentForm.controls.amount.setValue(multiplyDecimalValuesToSix(this.remainingUsd(sale), this.exchangeRate.rate));
+    } else {
+      this.formError = this.exchangeRateError || 'Los abonos de crédito solo pueden registrarse en VES o USD.';
+    }
+  }
+
+  paymentAppliedUsd(): string {
+    const amount = this.paymentForm.controls.amount.value;
+    const session = this.openSessions.find((item) => String(item.id) === this.paymentForm.controls.cash_session_id.value);
+    if (!amount || !session) {
+      return '0.000000';
+    }
+    return session.currency === 'USD'
+      ? scaledToDecimal(decimalToScaled(amount, 6), 6)
+      : this.exchangeRate
+        ? divideDecimalsToSix(amount, this.exchangeRate.rate)
+        : '0.000000';
   }
 
   savePayment(): void {
@@ -453,15 +489,23 @@ export class SalesComponent implements OnInit {
       this.formError = 'Selecciona una sesión de caja abierta.';
       return;
     }
-    if (session.currency !== sale.currency && !values.exchange_rate) {
-      this.formError = `Indica cuántas unidades de ${sale.currency} corresponden a una unidad de ${session.currency}.`;
+    if (!this.exchangeRate) {
+      this.formError = 'No se pudo cargar la tasa oficial USD/VES.';
+      return;
+    }
+    if (!['USD', 'VES'].includes(session.currency)) {
+      this.formError = 'Los abonos de crédito solo pueden registrarse en VES o USD.';
+      return;
+    }
+    if (decimalToScaled(this.paymentAppliedUsd(), 6) > decimalToScaled(this.remainingUsd(sale), 6)) {
+      this.formError = 'El abono supera el saldo pendiente en USD a la tasa oficial vigente.';
       return;
     }
     const body: SalePaymentInput = {
       cash_session_id: session.id,
       payment_method: values.payment_method,
       amount: values.amount,
-      ...(session.currency !== sale.currency ? { exchange_rate: values.exchange_rate } : {})
+      exchange_rate: this.exchangeRate.rate
     };
 
     this.saving = true;
@@ -480,14 +524,23 @@ export class SalesComponent implements OnInit {
       });
   }
 
-  remaining(sale: Sale): string {
-    const paid = sumDecimals((sale.payments ?? []).map((payment) => payment.applied_amount));
-    const balance = decimalToScaled(sale.total, 6) - decimalToScaled(paid, 6);
+  remainingUsd(sale: Sale): string {
+    const saleRate = sale.exchange_rate || '1.000000';
+    const totalUsd = divideDecimalsToSix(sale.total, saleRate);
+    const paidUsd = sumDecimals((sale.payments ?? []).map((payment) =>
+      payment.usd_applied_amount ??
+      (payment.currency === 'USD' ? payment.amount : divideDecimalsToSix(payment.applied_amount, saleRate))
+    ));
+    const balance = decimalToScaled(totalUsd, 6) - decimalToScaled(paidUsd, 6);
     return scaledToDecimal(balance > 0n ? balance : 0n, 6);
   }
 
+  remainingVes(sale: Sale): string | null {
+    return this.exchangeRate ? multiplyDecimalValuesToSix(this.remainingUsd(sale), this.exchangeRate.rate) : null;
+  }
+
   canReceivePayment(sale: Sale): boolean {
-    return Boolean(sale.customer && this.remaining(sale) !== '0.000000');
+    return Boolean(sale.customer && this.remainingUsd(sale) !== '0.000000');
   }
 
   openSaleDetails(sale: Sale): void {
@@ -510,16 +563,6 @@ export class SalesComponent implements OnInit {
 
   private normalizeDecimal(value: string, scale: number): string {
     return scaledToDecimal(decimalToScaled(value, scale), scale);
-  }
-
-  private divideDecimalsToSix(dividend: string, divisor: string): string {
-    const numerator = decimalToScaled(dividend, 6) * 1_000_000n;
-    const denominator = decimalToScaled(divisor, 6);
-    if (denominator <= 0n) {
-      return '0.000000';
-    }
-
-    return scaledToDecimal((numerator + denominator / 2n) / denominator, 6);
   }
 
   private createLine(): SaleLineForm {

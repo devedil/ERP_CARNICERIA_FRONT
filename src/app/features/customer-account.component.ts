@@ -27,12 +27,19 @@ import {
   CashSession,
   CustomerAccountEntry,
   CustomerAccountStatement,
-  CustomerCreditAccount
+  CustomerCreditAccount,
+  ExchangeRate
 } from '../core/models/catalog.models';
 import { CashService } from '../core/services/cash.service';
 import { CustomerService } from '../core/services/customer.service';
+import { ExchangeRateService } from '../core/services/exchange-rate.service';
 import { SalePaymentInput, SaleService } from '../core/services/sale.service';
-import { decimalToScaled, multiplyDecimalsToSix, scaledToDecimal } from '../core/utils/decimal';
+import {
+  decimalToScaled,
+  divideDecimalsToSix,
+  multiplyDecimalValuesToSix,
+  scaledToDecimal
+} from '../core/utils/decimal';
 
 @Component({
   selector: 'app-customer-account',
@@ -62,22 +69,24 @@ export class CustomerAccountComponent implements OnInit {
   readonly #destroyRef = inject(DestroyRef);
   readonly #customersApi = inject(CustomerService);
   readonly #cashApi = inject(CashService);
+  readonly #exchangeRatesApi = inject(ExchangeRateService);
   readonly #salesApi = inject(SaleService);
   readonly #changeDetector = inject(ChangeDetectorRef);
 
-  readonly currencyControl = new FormControl('', { nonNullable: true });
   creditAccounts: CustomerCreditAccount[] = [];
   openSessions: CashSession[] = [];
+  exchangeRate: ExchangeRate | null = null;
   statement: CustomerAccountStatement | null = null;
   selectedCreditAccount: CustomerCreditAccount | null = null;
-  availableCurrencies: string[] = [];
   loadingAccounts = false;
+  loadingExchangeRate = false;
   loadingStatement = false;
   savingPayment = false;
   accountModalVisible = false;
   paymentModalVisible = false;
   selectedEntry: CustomerAccountEntry | null = null;
   pageError = '';
+  exchangeRateError = '';
   statementError = '';
   paymentError = '';
   successMessage = '';
@@ -87,10 +96,6 @@ export class CustomerAccountComponent implements OnInit {
     amount: new FormControl<string | number>('', {
       nonNullable: true,
       validators: [Validators.required, Validators.pattern(/^\d+(\.\d{1,6})?$/)]
-    }),
-    exchange_rate: new FormControl<string | number>('', {
-      nonNullable: true,
-      validators: [Validators.pattern(/^\d+(\.\d{1,6})?$/)]
     })
   });
 
@@ -101,6 +106,7 @@ export class CustomerAccountComponent implements OnInit {
   loadInitialData(): void {
     this.loadingAccounts = true;
     this.pageError = '';
+    this.loadExchangeRate();
     forkJoin({
       accounts: this.#customersApi.creditAccounts(),
       sessions: this.#cashApi.openSessions()
@@ -128,6 +134,7 @@ export class CustomerAccountComponent implements OnInit {
   refresh(): void {
     this.loadingAccounts = true;
     this.pageError = '';
+    this.loadExchangeRate();
     this.#customersApi.creditAccounts()
       .pipe(
         takeUntilDestroyed(this.#destroyRef),
@@ -158,8 +165,6 @@ export class CustomerAccountComponent implements OnInit {
 
   openCustomerAccount(account: CustomerCreditAccount): void {
     this.selectedCreditAccount = account;
-    this.currencyControl.setValue('');
-    this.availableCurrencies = account.balances.map((balance) => balance.currency);
     this.statement = null;
     this.statementError = '';
     this.accountModalVisible = true;
@@ -176,7 +181,7 @@ export class CustomerAccountComponent implements OnInit {
 
     this.loadingStatement = true;
     this.statementError = '';
-    this.#customersApi.accountStatement(customerId, this.currencyControl.value || undefined)
+    this.#customersApi.accountStatement(customerId)
       .pipe(
         takeUntilDestroyed(this.#destroyRef),
         finalize(() => {
@@ -197,18 +202,13 @@ export class CustomerAccountComponent implements OnInit {
       });
   }
 
-  onCurrencyChanged(): void {
-    this.loadStatement();
-  }
-
   openPayment(entry: CustomerAccountEntry): void {
     this.selectedEntry = entry;
     this.paymentError = '';
     this.paymentForm.reset({
       cash_session_id: '',
       payment_method: 'cash',
-      amount: '',
-      exchange_rate: ''
+      amount: ''
     });
     this.accountModalVisible = false;
     this.paymentModalVisible = true;
@@ -223,21 +223,70 @@ export class CustomerAccountComponent implements OnInit {
     return this.openSessions.find((session) => String(session.id) === this.paymentForm.controls.cash_session_id.value);
   }
 
-  paymentRequiresExchangeRate(): boolean {
+  onPaymentSessionChanged(): void {
+    this.paymentError = '';
     const session = this.selectedPaymentSession();
-    return Boolean(session && this.selectedEntry && session.currency !== this.selectedEntry.currency);
+    const entry = this.selectedEntry;
+    if (!session || !entry) {
+      return;
+    }
+
+    if (session.currency === 'USD') {
+      this.paymentForm.controls.amount.setValue(entry.usd_balance);
+    } else if (session.currency === 'VES' && this.exchangeRate) {
+      this.paymentForm.controls.amount.setValue(multiplyDecimalValuesToSix(entry.usd_balance, this.exchangeRate.rate));
+    } else {
+      this.paymentError = this.exchangeRate
+        ? 'La moneda de la caja no es compatible con los créditos (USD/VES).'
+        : 'No se pudo cargar la tasa oficial USD/VES.';
+    }
   }
 
-  paymentAppliedAmount(): string {
+  paymentAppliedUsd(): string {
     const amount = this.paymentForm.controls.amount.value;
-    const rate = this.paymentForm.controls.exchange_rate.value;
-    if (amount === '') {
+    const session = this.selectedPaymentSession();
+    if (amount === '' || !session) {
       return '0.000000';
     }
 
-    return this.paymentRequiresExchangeRate() && rate
-      ? multiplyDecimalsToSix(String(amount), String(rate))
-      : scaledToDecimal(decimalToScaled(String(amount), 6), 6);
+    if (session.currency === 'USD') {
+      return scaledToDecimal(decimalToScaled(String(amount), 6), 6);
+    }
+    return this.exchangeRate
+      ? divideDecimalsToSix(String(amount), this.exchangeRate.rate)
+      : '0.000000';
+  }
+
+  paymentVesEquivalent(amountUsd: string): string | null {
+    return this.exchangeRate ? multiplyDecimalValuesToSix(amountUsd, this.exchangeRate.rate) : null;
+  }
+
+  refreshExchangeRate(): void {
+    this.loadExchangeRate();
+  }
+
+  private loadExchangeRate(): void {
+    this.loadingExchangeRate = true;
+    this.exchangeRateError = '';
+    this.#exchangeRatesApi.current()
+      .pipe(
+        takeUntilDestroyed(this.#destroyRef),
+        finalize(() => {
+          this.loadingExchangeRate = false;
+          this.#changeDetector.markForCheck();
+        })
+      )
+      .subscribe({
+        next: ({ data }) => {
+          this.exchangeRate = data;
+          this.#changeDetector.markForCheck();
+        },
+        error: (error: unknown) => {
+          this.exchangeRate = null;
+          this.exchangeRateError = getApiErrorMessage(error);
+          this.#changeDetector.markForCheck();
+        }
+      });
   }
 
   savePayment(): void {
@@ -253,15 +302,20 @@ export class CustomerAccountComponent implements OnInit {
       this.paymentError = 'Selecciona una sesión de caja abierta.';
       return;
     }
-    if (session.currency !== entry.currency && !values.exchange_rate) {
-      this.paymentError = `Indica cuántas unidades de ${entry.currency} corresponden a una unidad de ${session.currency}.`;
+    if (!this.exchangeRate) {
+      this.paymentError = 'No se pudo cargar la tasa oficial USD/VES. Actualiza la tasa antes de registrar el abono.';
       return;
     }
-    if (decimalToScaled(this.paymentAppliedAmount(), 6) > decimalToScaled(entry.balance, 6)) {
-      this.paymentError = 'El abono aplicado supera el saldo pendiente de esta venta.';
+    if (!['USD', 'VES'].includes(session.currency)) {
+      this.paymentError = 'Los abonos de crédito solo pueden registrarse en VES o USD.';
       return;
     }
-    if (!window.confirm(`¿Confirmas registrar el abono de ${values.amount} ${session.currency}?`)) {
+    if (decimalToScaled(this.paymentAppliedUsd(), 6) > decimalToScaled(entry.usd_balance, 6)) {
+      this.paymentError = 'El abono aplicado supera el saldo pendiente en USD.';
+      return;
+    }
+    const appliedUsd = this.paymentAppliedUsd();
+    if (!window.confirm(`¿Confirmas recibir ${values.amount} ${session.currency} (${appliedUsd} USD)?`)) {
       return;
     }
 
@@ -269,9 +323,7 @@ export class CustomerAccountComponent implements OnInit {
       cash_session_id: session.id,
       payment_method: values.payment_method,
       amount: this.normalizeDecimal(values.amount),
-      ...(session.currency !== entry.currency
-        ? { exchange_rate: this.normalizeDecimal(values.exchange_rate) }
-        : {})
+      exchange_rate: this.exchangeRate.rate
     };
 
     this.savingPayment = true;

@@ -20,6 +20,19 @@
     @if (pageError) {
       <div class="alert alert-danger" role="alert">{{ pageError }}</div>
     }
+    @if (exchangeRateError) {
+      <div class="alert alert-warning" role="alert">
+        No se pudo cargar la tasa oficial USD/VES: {{ exchangeRateError }}
+        <button cButton color="primary" size="sm" variant="outline" type="button" class="ms-2" [disabled]="loadingExchangeRate" (click)="refresh()">
+          Reintentar
+        </button>
+      </div>
+    }
+    @if (exchangeRate) {
+      <div class="small text-body-secondary mb-3">
+        Tasa oficial actual: 1 USD = {{ exchangeRate.rate }} VES
+      </div>
+    }
     @if (successMessage) {
       <div class="alert alert-success alert-dismissible" role="status">
         {{ successMessage }}
@@ -61,6 +74,9 @@
                     <td>
                       @for (balance of account.balances; track balance.currency) {
                         <div><strong>{{ balance.balance }} {{ balance.currency }}</strong></div>
+                        @if (paymentVesEquivalent(balance.balance); as amountVes) {
+                          <div class="small text-body-secondary">{{ amountVes }} VES a la tasa actual</div>
+                        }
                       }
                     </td>
                     <td>
@@ -109,21 +125,9 @@
                 <div>Teléfono: {{ account.customer.phone }}</div>
               }
             </div>
-            <div>
-              <label cLabel for="account-currency">Moneda</label>
-              <select
-                cSelect
-                id="account-currency"
-                [formControl]="currencyControl"
-                (change)="onCurrencyChanged()"
-                [disabled]="loadingStatement"
-              >
-                <option value="">Todas las monedas</option>
-                @for (currency of availableCurrencies; track currency) {
-                  <option [value]="currency">{{ currency }}</option>
-                }
-              </select>
-            </div>
+            @if (exchangeRate) {
+              <div class="small text-body-secondary">Tasa oficial: 1 USD = {{ exchangeRate.rate }} VES</div>
+            }
           </div>
 
           @if (statementError) {
@@ -134,18 +138,21 @@
           } @else if (statement) {
             @if (statement.balances.length === 0) {
               <div class="alert alert-info" role="status">
-                {{ statement.customer.name }} no tiene ventas a crédito registradas para esta moneda.
+                {{ statement.customer.name }} no tiene ventas a crédito registradas.
               </div>
             } @else {
               <c-row class="g-3 mb-4">
                 @for (balance of statement.balances; track balance.currency) {
                   <c-col sm="6" xl="4">
                     <c-card>
-                      <c-card-header><strong>Resumen en {{ balance.currency }}</strong></c-card-header>
+                      <c-card-header><strong>Resumen del crédito en USD</strong></c-card-header>
                       <c-card-body>
                         <div class="d-flex justify-content-between mb-2">
                           <span>Ventas a crédito</span>
                           <strong>{{ balance.sales_total }} {{ balance.currency }}</strong>
+                          @if (paymentVesEquivalent(balance.sales_total); as amountVes) {
+                            <span class="small text-body-secondary">{{ amountVes }} VES a la tasa actual</span>
+                          }
                         </div>
                         <div class="d-flex justify-content-between mb-2">
                           <span>Abonos aplicados</span>
@@ -155,6 +162,9 @@
                           <span>Saldo pendiente</span>
                           <strong>{{ balance.balance }} {{ balance.currency }}</strong>
                         </div>
+                        @if (paymentVesEquivalent(balance.balance); as amountVes) {
+                          <div class="small text-body-secondary text-end mt-1">{{ amountVes }} VES a pagar hoy</div>
+                        }
                       </c-card-body>
                     </c-card>
                   </c-col>
@@ -167,9 +177,9 @@
                     <tr>
                       <th scope="col">Comprobante</th>
                       <th scope="col">Fecha</th>
-                      <th scope="col">Total</th>
-                      <th scope="col">Abonado</th>
-                      <th scope="col">Saldo</th>
+                      <th scope="col">Total USD</th>
+                      <th scope="col">Abonado USD</th>
+                      <th scope="col">Saldo USD</th>
                       <th scope="col">Estado</th>
                       <th scope="col">Abonos</th>
                       <th scope="col">Acciones</th>
@@ -180,9 +190,17 @@
                       <tr>
                         <td>{{ documentLabel(entry) }}</td>
                         <td>{{ entry.sold_at }}</td>
-                        <td>{{ entry.total }} {{ entry.currency }}</td>
-                        <td>{{ entry.paid_amount }} {{ entry.currency }}</td>
-                        <td><strong>{{ entry.balance }} {{ entry.currency }}</strong></td>
+                        <td>
+                          {{ entry.usd_total }} USD
+                          <div class="small text-body-secondary">{{ entry.total }} VES al vender</div>
+                        </td>
+                        <td>{{ entry.usd_paid_amount }} USD</td>
+                        <td>
+                          <strong>{{ entry.usd_balance }} USD</strong>
+                          @if (paymentVesEquivalent(entry.usd_balance); as amountVes) {
+                            <div class="small text-body-secondary">{{ amountVes }} VES a la tasa actual</div>
+                          }
+                        </td>
                         <td>{{ entry.status }}</td>
                         <td>
                           @if (entry.payments.length === 0) {
@@ -190,16 +208,12 @@
                           } @else {
                             @for (payment of entry.payments; track payment.id) {
                               <div>{{ payment.amount }} {{ payment.currency }}</div>
-                              @if (payment.currency !== entry.currency) {
-                                <small class="text-body-secondary">
-                                  Aplicado: {{ payment.applied_amount }} {{ entry.currency }}
-                                </small>
-                              }
+                              <small class="text-body-secondary">Aplicado: {{ payment.usd_applied_amount }} USD</small>
                             }
                           }
                         </td>
                         <td>
-                          @if (entry.balance !== '0.000000') {
+                          @if (entry.usd_balance !== '0.000000') {
                             <button
                               cButton
                               color="primary"
@@ -246,9 +260,29 @@
           @if (selectedEntry) {
             <p>
               Saldo pendiente:
-              <strong>{{ selectedEntry.balance }} {{ selectedEntry.currency }}</strong>
+                <strong>{{ selectedEntry.usd_balance }} USD</strong>
+                @if (paymentVesEquivalent(selectedEntry.usd_balance); as amountVes) {
+                  <span> · Debes cobrar <strong>{{ amountVes }} VES</strong> a la tasa actual.</span>
+                }
             </p>
           }
+            @if (exchangeRate) {
+              <div class="small text-body-secondary mb-3">
+                Tasa oficial al mostrar esta cuenta: 1 USD = {{ exchangeRate.rate }} VES.
+                El backend confirma la tasa vigente al registrar el abono.
+                <button cButton color="secondary" size="sm" variant="outline" type="button" class="ms-2" [disabled]="loadingExchangeRate" (click)="refreshExchangeRate()">
+                  Actualizar tasa
+                </button>
+              </div>
+            }
+            @if (!exchangeRate) {
+              <div class="alert alert-warning" role="status">
+                No hay una tasa oficial disponible; no se puede calcular el importe en VES ni registrar el abono.
+                <button cButton color="primary" size="sm" variant="outline" type="button" class="ms-2" [disabled]="loadingExchangeRate" (click)="refreshExchangeRate()">
+                  Reintentar
+                </button>
+              </div>
+            }
           @if (openSessions.length === 0) {
             <div class="alert alert-warning" role="status">
               No hay sesiones de caja abiertas. Abre una caja antes de registrar un abono.
@@ -257,7 +291,7 @@
           <c-row class="g-3">
             <c-col md="6">
               <label cLabel for="account-payment-session">Sesión de caja</label>
-              <select cSelect id="account-payment-session" formControlName="cash_session_id">
+              <select cSelect id="account-payment-session" formControlName="cash_session_id" (change)="onPaymentSessionChanged()">
                 <option value="">Selecciona una sesión abierta</option>
                 @for (session of openSessions; track session.id) {
                   <option [value]="session.id">
@@ -267,7 +301,7 @@
               </select>
             </c-col>
             <c-col md="6">
-              <label cLabel for="account-payment-amount">Importe recibido (moneda de caja)</label>
+              <label cLabel for="account-payment-amount">Importe recibido ({{ selectedPaymentSession()?.currency ?? 'moneda de caja' }})</label>
               <input cFormControl id="account-payment-amount" type="text" inputmode="decimal" formControlName="amount" />
             </c-col>
             <c-col md="6">
@@ -280,21 +314,12 @@
                 <option value="other">Otro</option>
               </select>
             </c-col>
-            <c-col md="6">
-              <label cLabel for="account-payment-rate">Tasa (moneda de venta por moneda de caja)</label>
-              @if (paymentRequiresExchangeRate()) {
-                <input cFormControl id="account-payment-rate" type="text" inputmode="decimal" formControlName="exchange_rate" />
-                <div class="form-text">
-                  Indica cuántas unidades de {{ selectedEntry?.currency }} equivalen a una unidad de
-                  {{ selectedPaymentSession()?.currency }}.
-                </div>
-              } @else {
-                <div class="form-control bg-body-secondary">No requerida: caja {{ selectedEntry?.currency }}</div>
-              }
-            </c-col>
             <c-col xs="12">
               <div class="small text-body-secondary">
-                Se aplicarán {{ paymentAppliedAmount() }} {{ selectedEntry?.currency }} al saldo.
+                Se aplicarán {{ paymentAppliedUsd() }} USD al saldo.
+                @if (selectedPaymentSession()?.currency === 'VES' && exchangeRate) {
+                  Tasa: 1 USD = {{ exchangeRate.rate }} VES.
+                }
               </div>
             </c-col>
           </c-row>
@@ -303,7 +328,7 @@
           <button cButton color="secondary" variant="outline" type="button" [disabled]="savingPayment" (click)="closePayment()">
             Cancelar
           </button>
-          <button cButton color="primary" type="submit" [disabled]="savingPayment || openSessions.length === 0">
+          <button cButton color="primary" type="submit" [disabled]="savingPayment || openSessions.length === 0 || !exchangeRate || loadingExchangeRate">
             {{ savingPayment ? 'Procesando...' : 'Registrar abono' }}
           </button>
         </c-modal-footer>

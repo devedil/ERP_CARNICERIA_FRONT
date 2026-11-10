@@ -39,7 +39,7 @@
                     <th scope="col">Cliente</th>
                     <th scope="col">Total</th>
                     <th scope="col">Tasa USD/VES</th>
-                    <th scope="col">Pendiente</th>
+                    <th scope="col">Pendiente USD</th>
                     <th scope="col">Estado</th>
                     <th scope="col">Acciones</th>
                   </tr>
@@ -61,7 +61,12 @@
                       <td>{{ sale.customer?.name ?? 'Público general' }}</td>
                       <td>{{ sale.total }} {{ sale.currency }}</td>
                       <td>{{ sale.exchange_rate ?? '—' }}</td>
-                      <td>{{ remaining(sale) }} {{ sale.currency }}</td>
+                      <td>
+                        {{ remainingUsd(sale) }} USD
+                        @if (remainingVes(sale); as amountVes) {
+                          <div class="small text-body-secondary">{{ amountVes }} VES a la tasa actual</div>
+                        }
+                      </td>
                       <td>
                         {{ sale.status }}
                         @if (sale.inventory_conflict) {
@@ -328,12 +333,24 @@
             <div class="alert alert-danger" role="alert">{{ formError }}</div>
           }
           @if (selectedSale) {
-            <p>Saldo pendiente: <strong>{{ remaining(selectedSale) }} {{ selectedSale.currency }}</strong></p>
+            <p>
+              Saldo pendiente: <strong>{{ remainingUsd(selectedSale) }} USD</strong>
+              @if (remainingVes(selectedSale); as amountVes) {
+                <span> · Debes cobrar <strong>{{ amountVes }} VES</strong> a la tasa oficial actual.</span>
+              }
+            </p>
+          }
+          @if (exchangeRate) {
+            <div class="small text-body-secondary mb-3">Tasa oficial: 1 USD = {{ exchangeRate.rate }} VES.</div>
+          } @else {
+            <div class="alert alert-warning" role="status">
+              No hay una tasa oficial disponible para calcular el equivalente en VES.
+            </div>
           }
           <c-row class="g-3">
             <c-col md="6">
               <label cLabel for="sale-payment-session">Sesión de caja</label>
-              <select cSelect id="sale-payment-session" formControlName="cash_session_id">
+              <select cSelect id="sale-payment-session" formControlName="cash_session_id" (change)="onPaymentSessionChanged()">
                 <option value="">Selecciona una sesión abierta</option>
                 @for (session of openSessions; track session.id) {
                   <option [value]="session.id">Caja {{ session.register?.name ?? ('#' + session.id) }} · {{ session.currency }}</option>
@@ -341,8 +358,9 @@
               </select>
             </c-col>
             <c-col md="6">
-              <label cLabel for="sale-payment-amount">Importe recibido</label>
+              <label cLabel for="sale-payment-amount">Importe recibido ({{ selectedCreditPaymentSession?.currency ?? 'moneda de caja' }})</label>
               <input cFormControl id="sale-payment-amount" type="number" min="0.000001" step="0.000001" formControlName="amount" />
+              <div class="form-text">Se aplicarán {{ paymentAppliedUsd() }} USD al saldo.</div>
             </c-col>
             <c-col md="6">
               <label cLabel for="sale-payment-method">Método de pago</label>
@@ -354,15 +372,11 @@
                 <option value="other">Otro</option>
               </select>
             </c-col>
-            <c-col md="6">
-              <label cLabel for="sale-payment-rate">Tasa (moneda de venta por moneda de pago)</label>
-              <input cFormControl id="sale-payment-rate" type="number" min="0.000001" step="0.000001" formControlName="exchange_rate" />
-            </c-col>
           </c-row>
         </c-modal-body>
         <c-modal-footer>
           <button cButton color="secondary" variant="outline" type="button" [disabled]="saving" (click)="paymentModalVisible = false">Cancelar</button>
-          <button cButton color="primary" type="submit" [disabled]="saving">{{ saving ? 'Procesando...' : 'Registrar abono' }}</button>
+          <button cButton color="primary" type="submit" [disabled]="saving || !exchangeRate">{{ saving ? 'Procesando...' : 'Registrar abono' }}</button>
         </c-modal-footer>
       </form>
     </c-modal>

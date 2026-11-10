@@ -180,6 +180,7 @@ export interface SalePayment {
   currency: string;
   exchange_rate: string;
   applied_amount: string;
+  usd_applied_amount?: string | null;
 }
 
 export interface Sale {
@@ -299,6 +300,7 @@ export interface CustomerAccountPayment {
   currency: string;
   exchange_rate: string;
   applied_amount: string;
+  usd_applied_amount: string;
 }
 
 export interface CustomerAccountEntry {
@@ -309,6 +311,9 @@ export interface CustomerAccountEntry {
   total: string;
   paid_amount: string;
   balance: string;
+  usd_total: string;
+  usd_paid_amount: string;
+  usd_balance: string;
   status: string;
   payments: CustomerAccountPayment[];
 }
