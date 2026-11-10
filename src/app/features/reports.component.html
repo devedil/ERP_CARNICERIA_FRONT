@@ -1,0 +1,224 @@
+<div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-4">
+  <div>
+    <h1 class="h3 mb-1">Reportes</h1>
+    <p class="text-body-secondary mb-0">Consulta el desempeño de ventas, compras, caja, inventario y cuentas.</p>
+  </div>
+  <button cButton color="secondary" variant="outline" type="button" [disabled]="loading" (click)="applyFilters()">
+    Actualizar
+  </button>
+</div>
+
+@if (pageError) {
+  <div class="alert alert-danger" role="alert">{{ pageError }}</div>
+}
+@if (filterError) {
+  <div class="alert alert-warning" role="alert">{{ filterError }}</div>
+}
+
+<c-card class="mb-4">
+  <c-card-header><strong>Filtros del reporte</strong></c-card-header>
+  <c-card-body>
+    <form cForm [formGroup]="filters" (ngSubmit)="applyFilters()">
+      <c-row class="g-3 align-items-end">
+        <c-col sm="6" xl="3">
+          <label cLabel for="report-from">Desde</label>
+          <input cFormControl id="report-from" type="date" formControlName="from" />
+        </c-col>
+        <c-col sm="6" xl="3">
+          <label cLabel for="report-to">Hasta</label>
+          <input cFormControl id="report-to" type="date" formControlName="to" />
+        </c-col>
+        <c-col sm="6" xl="2">
+          <label cLabel for="report-currency">Moneda</label>
+          <select cSelect id="report-currency" formControlName="currency">
+            <option value="">Todas</option>
+            <option value="VES">VES</option>
+            <option value="USD">USD</option>
+          </select>
+        </c-col>
+        <c-col sm="6" xl="2">
+          <label cLabel for="report-location">Almacén</label>
+          <select cSelect id="report-location" formControlName="inventory_location_id">
+            <option value="">Todos</option>
+            @for (location of locations; track location.id) {
+              <option [value]="location.id">{{ location.name }}</option>
+            }
+          </select>
+        </c-col>
+        <c-col sm="12" xl="2">
+          <button cButton color="primary" type="submit" class="w-100" [disabled]="loading">
+            {{ loading ? 'Consultando...' : 'Aplicar filtros' }}
+          </button>
+        </c-col>
+      </c-row>
+    </form>
+  </c-card-body>
+</c-card>
+
+@if (loading && !summary) {
+  <div class="text-center text-body-secondary py-5">Cargando reporte...</div>
+} @else if (summary; as data) {
+  <c-row class="g-4 mb-4">
+    <c-col sm="6" xl="3">
+      <c-card class="h-100 border-start border-start-4 border-start-primary">
+        <c-card-body>
+          <div class="text-body-secondary small">Ventas</div>
+          <div class="fs-4 fw-semibold">{{ data.sales.count }}</div>
+          <div class="small text-body-secondary mt-2">{{ formatAmounts(data.sales.total_by_currency) }}</div>
+        </c-card-body>
+      </c-card>
+    </c-col>
+    <c-col sm="6" xl="3">
+      <c-card class="h-100 border-start border-start-4 border-start-info">
+        <c-card-body>
+          <div class="text-body-secondary small">Compras</div>
+          <div class="fs-4 fw-semibold">{{ data.purchases.count }}</div>
+          <div class="small text-body-secondary mt-2">{{ formatAmounts(data.purchases.total_by_currency) }}</div>
+        </c-card-body>
+      </c-card>
+    </c-col>
+    <c-col sm="6" xl="3">
+      <c-card class="h-100 border-start border-start-4 border-start-success">
+        <c-card-body>
+          <div class="text-body-secondary small">Líneas con existencia</div>
+          <div class="fs-4 fw-semibold">{{ data.inventory.stock_lines }}</div>
+          <div class="small text-body-secondary mt-2">{{ formatAmounts(data.inventory.value_by_currency) }}</div>
+        </c-card-body>
+      </c-card>
+    </c-col>
+    <c-col sm="6" xl="3">
+      <c-card class="h-100 border-start border-start-4 border-start-warning">
+        <c-card-body>
+          <div class="text-body-secondary small">Cuentas por cobrar</div>
+          <div class="fs-4 fw-semibold">{{ data.accounts_receivable.count }}</div>
+          <div class="small text-body-secondary mt-2">{{ formatAmounts(data.accounts_receivable.balance_by_currency) }}</div>
+        </c-card-body>
+      </c-card>
+    </c-col>
+  </c-row>
+
+  @if (loading) {
+    <div class="text-body-secondary small mb-3">Actualizando resultados...</div>
+  }
+
+  <c-row class="g-4 mb-4">
+    <c-col xs="12" xl="8">
+      <c-card class="h-100">
+        <c-card-header>Productos con mayores ventas</c-card-header>
+        <c-card-body>
+          @if (chartData.labels?.length) {
+            <c-chart [data]="chartData" [options]="chartOptions" [height]="320" type="bar">
+              Ventas por producto
+            </c-chart>
+          } @else {
+            <div class="text-center text-body-secondary py-5">No hay ventas para los filtros seleccionados.</div>
+          }
+        </c-card-body>
+      </c-card>
+    </c-col>
+    <c-col xs="12" xl="4">
+      <c-card class="h-100">
+        <c-card-header>Cuentas por cobrar y pagar</c-card-header>
+        <c-card-body>
+          <div class="border-bottom pb-3 mb-3">
+            <div class="text-body-secondary small">Por cobrar · {{ data.accounts_receivable.count }} ventas pendientes</div>
+            <strong>{{ formatAmounts(data.accounts_receivable.balance_by_currency) }}</strong>
+          </div>
+          <div>
+            <div class="text-body-secondary small">Por pagar · {{ data.accounts_payable.count }} compras pendientes</div>
+            <strong>{{ formatAmounts(data.accounts_payable.balance_by_currency) }}</strong>
+          </div>
+          <div class="form-text mt-3">
+            Los saldos de cuentas son actuales; no cambian con el período seleccionado.
+          </div>
+        </c-card-body>
+      </c-card>
+    </c-col>
+  </c-row>
+
+  <c-row class="g-4 mb-4">
+    <c-col xs="12" lg="6">
+      <c-card class="h-100">
+        <c-card-header><strong>Ventas por producto</strong></c-card-header>
+        <c-card-body>
+          @if (data.sales.by_product.length === 0) {
+            <div class="text-center text-body-secondary py-4">No hay ventas para mostrar.</div>
+          } @else {
+            <div class="table-responsive">
+              <table cTable [striped]="true" [hover]="true">
+                <thead>
+                  <tr>
+                    <th scope="col">Producto</th>
+                    <th scope="col">Cantidad base</th>
+                    <th scope="col">Total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (product of data.sales.by_product; track product.product_id + product.currency) {
+                    <tr>
+                      <td>{{ product.product ?? ('Producto #' + product.product_id) }}</td>
+                      <td>{{ product.quantity }}</td>
+                      <td>{{ formatAmount(product.total, product.currency) }}</td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+          }
+        </c-card-body>
+      </c-card>
+    </c-col>
+    <c-col xs="12" lg="6">
+      <c-card class="h-100">
+        <c-card-header><strong>Movimientos de caja</strong></c-card-header>
+        <c-card-body>
+          @if (data.cash.length === 0) {
+            <div class="text-center text-body-secondary py-4">No hay movimientos para mostrar.</div>
+          } @else {
+            <div class="table-responsive">
+              <table cTable [striped]="true" [hover]="true">
+                <thead>
+                  <tr>
+                    <th scope="col">Moneda</th>
+                    <th scope="col">Ingresos</th>
+                    <th scope="col">Egresos</th>
+                    <th scope="col">Neto</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (cash of data.cash; track cash.currency) {
+                    <tr>
+                      <td>{{ cash.currency }}</td>
+                      <td>{{ formatAmount(cash.income, cash.currency) }}</td>
+                      <td>{{ formatAmount(cash.expense, cash.currency) }}</td>
+                      <td><strong>{{ formatAmount(cash.net, cash.currency) }}</strong></td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+          }
+        </c-card-body>
+      </c-card>
+    </c-col>
+  </c-row>
+
+  <c-card class="mb-4">
+    <c-card-header><strong>Valorización del inventario</strong></c-card-header>
+    <c-card-body>
+      <div class="d-flex flex-wrap gap-4">
+        @for (amount of data.inventory.value_by_currency; track amount.currency) {
+          <div>
+            <div class="text-body-secondary small">{{ amount.currency }}</div>
+            <strong>{{ formatAmount(amount.amount, amount.currency) }}</strong>
+          </div>
+        } @empty {
+          <div class="text-body-secondary">No hay existencias valorizadas para los filtros seleccionados.</div>
+        }
+      </div>
+      <div class="form-text mt-3">
+        La valorización usa el almacén seleccionado y no convierte costos entre monedas.
+      </div>
+    </c-card-body>
+  </c-card>
+}

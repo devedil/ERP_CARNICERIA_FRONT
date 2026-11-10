@@ -13,32 +13,12 @@ export const routes: Routes = [
     loadComponent: () => import('./layout').then(m => m.DefaultLayoutComponent),
     canActivateChild: [authGuard],
     data: {
-      title: 'Home'
+      title: 'Inicio'
     },
     children: [
       {
         path: 'dashboard',
         loadChildren: () => import('./views/dashboard/routes').then((m) => m.routes)
-      },
-      {
-        path: 'components',
-        loadChildren: () => import('./views/components/routes').then((m) => m.routes)
-      },
-      {
-        path: 'forms',
-        loadChildren: () => import('./views/forms/routes').then((m) => m.routes)
-      },
-      {
-        path: 'icons',
-        loadChildren: () => import('./views/icons/routes').then((m) => m.routes)
-      },
-      {
-        path: 'widgets',
-        loadChildren: () => import('./views/widgets/routes').then((m) => m.routes)
-      },
-      {
-        path: 'charts',
-        loadChildren: () => import('./views/charts/routes').then((m) => m.routes)
       },
       {
         path: 'products/:productId/configuration',
@@ -59,6 +39,11 @@ export const routes: Routes = [
         path: 'customer-accounts',
         loadComponent: () => import('./features/customer-account.component').then((m) => m.CustomerAccountComponent),
         data: { title: 'Estado de cuenta de clientes' }
+      },
+      {
+        path: 'reports',
+        loadComponent: () => import('./features/reports.component').then((m) => m.ReportsComponent),
+        data: { title: 'Reportes' }
       },
       {
         path: 'purchases',

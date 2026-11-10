@@ -7,6 +7,36 @@ export const navItems: INavData[] = [
     iconComponent: { name: 'cil-speedometer' }
   },
   {
+    name: 'Ventas',
+    url: '/sales',
+    iconComponent: { name: 'cil-credit-card' }
+  },
+  {
+    name: 'Caja',
+    url: '/cash',
+    iconComponent: { name: 'cil-dollar' }
+  },
+  {
+    name: 'Compras',
+    url: '/purchases',
+    iconComponent: { name: 'cil-notes' }
+  },
+  {
+    name: 'Inventario',
+    url: '/inventory',
+    iconComponent: { name: 'cil-layers' }
+  },
+  {
+    name: 'Créditos de clientes',
+    url: '/customer-accounts',
+    iconComponent: { name: 'cil-wallet' }
+  },
+  {
+    name: 'Reportes',
+    url: '/reports',
+    iconComponent: { name: 'cil-chart' }
+  },
+  {
     title: true,
     name: 'Gestión'
   },
@@ -26,11 +56,6 @@ export const navItems: INavData[] = [
     iconComponent: { name: 'cil-people' }
   },
   {
-    name: 'Estado de cuenta',
-    url: '/customer-accounts',
-    iconComponent: { name: 'cil-wallet' }
-  },
-  {
     name: 'Proveedores',
     url: '/suppliers',
     iconComponent: { name: 'cil-user-follow' }
@@ -44,25 +69,5 @@ export const navItems: INavData[] = [
     name: 'Listas de precios',
     url: '/price-lists',
     iconComponent: { name: 'cil-tags' }
-  },
-  {
-    name: 'Ventas',
-    url: '/sales',
-    iconComponent: { name: 'cil-credit-card' }
-  },
-  {
-    name: 'Compras',
-    url: '/purchases',
-    iconComponent: { name: 'cil-notes' }
-  },
-  {
-    name: 'Inventario',
-    url: '/inventory',
-    iconComponent: { name: 'cil-layers' }
-  },
-  {
-    name: 'Caja',
-    url: '/cash',
-    iconComponent: { name: 'cil-dollar' }
   }
 ];

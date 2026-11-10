@@ -6,7 +6,80 @@
 // custom tweaks for scrollbar styling (wip)
 @use "scrollbar";
 
- // custom calendar today cell color
+// Brand colors shared by the CoreUI components and charts.
+:root {
+  --cui-primary: #7a1428;
+  --cui-primary-rgb: 122, 20, 40;
+  --cui-link-color: #7a1428;
+  --cui-link-hover-color: #5b0e1d;
+  --cui-info: #b98522;
+  --cui-info-rgb: 185, 133, 34;
+}
+
+.sidebar {
+  --cui-sidebar-bg: #2b1118;
+  --cui-sidebar-color: #f7eee3;
+  --cui-sidebar-brand-bg: transparent;
+  --cui-sidebar-brand-color: #fff7e8;
+  --cui-sidebar-nav-link-active-bg: rgb(217 164 65 / 18%);
+  --cui-sidebar-nav-link-active-color: #ffd783;
+}
+
+.sidebar-brand {
+  gap: 0.5rem;
+  justify-content: flex-start;
+  padding-inline: 0.75rem;
+}
+
+.sidebar-brand-logo {
+  flex: 0 0 auto;
+  height: 48px;
+  object-fit: contain;
+  width: 48px;
+}
+
+.sidebar-brand-narrow {
+  display: none;
+}
+
+.sidebar-brand-name {
+  color: var(--cui-sidebar-brand-color);
+  font-size: 0.76rem;
+  font-weight: 700;
+  line-height: 1.15;
+  white-space: normal;
+}
+
+.sidebar-narrow,
+.sidebar-narrow-unfoldable:not(:hover) {
+  .sidebar-brand {
+    justify-content: center;
+    padding-inline: 0;
+  }
+
+  .sidebar-brand-full,
+  .sidebar-brand-name {
+    display: none;
+  }
+
+  .sidebar-brand-narrow {
+    display: block;
+    height: 40px;
+    width: 40px;
+  }
+}
+
+.header-brand-title {
+  color: var(--cui-primary);
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.header-user-icon {
+  color: var(--cui-primary);
+}
+
+// custom calendar today cell color
 .calendar-cell.today {
   --cui-calendar-cell-today-color: var(--cui-info) !important;
 }
