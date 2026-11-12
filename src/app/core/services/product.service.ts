@@ -16,8 +16,16 @@ import {
 export class ProductService {
   readonly #api = inject(ApiService);
 
-  list(): Observable<PaginatedCollection<Product>> {
-    return this.#api.get('products', new HttpParams().set('per_page', '100'));
+  list(search?: string): Observable<PaginatedCollection<Product>> {
+    let params = new HttpParams().set('per_page', search ? '20' : '100');
+    if (search) {
+      params = params.set('search', search);
+    }
+    return this.#api.get('products', params);
+  }
+
+  search(search: string): Observable<PaginatedCollection<Product>> {
+    return this.list(search);
   }
 
   get(id: number): Observable<ApiItem<Product>> {

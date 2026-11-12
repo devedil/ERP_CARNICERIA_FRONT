@@ -185,7 +185,7 @@
             <c-col md="6">
               <label cLabel for="sale-customer">Cliente (opcional para contado)</label>
               <select cSelect id="sale-customer" formControlName="customer_id">
-                <option value="">Público general</option>
+                <option value="">Público general (sin cliente)</option>
                 @for (customer of customers; track customer.id) {
                   <option [value]="customer.id">{{ customer.name }}</option>
                 }
@@ -193,14 +193,14 @@
             </c-col>
             <c-col md="6">
               <label cLabel for="sale-payment-mode">Tipo de venta</label>
-              <select cSelect id="sale-payment-mode" formControlName="payment_mode">
+              <select cSelect id="sale-payment-mode" formControlName="payment_mode" (change)="onPaymentModeChanged()">
                 <option value="immediate">Contado</option>
                 <option value="credit">Crédito</option>
               </select>
             </c-col>
             <c-col md="6">
               <label cLabel for="sale-price-list">Lista de precios</label>
-              <select cSelect id="sale-price-list" formControlName="price_list_id">
+              <select cSelect id="sale-price-list" formControlName="price_list_id" (change)="onPriceListChanged()">
                 <option value="">Selecciona una lista</option>
                 @for (priceList of priceLists; track priceList.id) {
                   <option [value]="priceList.id">{{ priceList.name }} (USD)</option>
@@ -218,38 +218,87 @@
             </c-col>
           </c-row>
 
+          <div class="mb-3">
+            <label cLabel for="sale-product-search">Buscar producto por nombre, código o código de barras</label>
+            <input
+              cFormControl
+              id="sale-product-search"
+              type="search"
+              autocomplete="off"
+              placeholder="Escribe o escanea el código del producto..."
+              [value]="productSearchTerm"
+              (input)="onProductSearchInput($event)"
+              (keydown.enter)="selectSingleSearchResult($event)"
+              aria-describedby="sale-product-search-help"
+            />
+            <div id="sale-product-search-help" class="form-text">
+              Escribe al menos 2 caracteres. Si solo hay un resultado, presiona Enter para agregarlo.
+            </div>
+            @if (productSearchLoading) {
+              <div class="small text-body-secondary mt-2" role="status">Buscando productos...</div>
+            }
+            @if (productSearchError) {
+              <div class="alert alert-danger mt-2 mb-0" role="alert">{{ productSearchError }}</div>
+            }
+            @if (productSearchMessage) {
+              <div class="alert alert-info mt-2 mb-0" role="status">{{ productSearchMessage }}</div>
+            }
+            @if (productSearchTerm.length >= 2 && !productSearchLoading && !productSearchError && productSearchResults.length === 0) {
+              <div class="small text-body-secondary mt-2">No se encontraron productos activos.</div>
+            }
+            @if (productSearchResults.length > 0) {
+              <div class="list-group mt-2" role="listbox" aria-label="Resultados de productos">
+                @for (product of productSearchResults; track product.id) {
+                  <button
+                    class="list-group-item list-group-item-action d-flex justify-content-between align-items-center gap-3"
+                    type="button"
+                    role="option"
+                    (click)="selectProduct(product)"
+                  >
+                    <span class="text-start">
+                      <strong>{{ product.name }}</strong>
+                      <small class="d-block text-body-secondary">
+                        {{ product.sku || product.barcode || 'Sin código' }} · {{ product.base_unit }}
+                      </small>
+                    </span>
+                    <span class="badge text-bg-primary">Agregar</span>
+                  </button>
+                }
+              </div>
+            }
+          </div>
+
           <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
-            <strong>Productos</strong>
-            <button cButton color="primary" variant="outline" size="sm" type="button" (click)="addLine()">Agregar producto</button>
+            <strong>Productos de la venta</strong>
           </div>
           <div formArrayName="lines">
             @for (line of lines.controls; track $index; let index = $index) {
               <c-row class="g-2 align-items-end mb-3" [formGroupName]="index">
                 <c-col md="4">
-                  <label cLabel [for]="'sale-product-' + index">Producto</label>
-                  <select cSelect [id]="'sale-product-' + index" formControlName="product_id" (change)="captureProductValue(index, $event)">
-                    <option value="">Buscar producto</option>
-                    @for (product of products; track product.id) {
-                      <option [value]="product.id">{{ product.name }} ({{ product.base_unit }})</option>
-                    }
-                  </select>
+                  <label class="form-label">Producto</label>
+                  <div class="form-control bg-body-secondary">
+                    {{ productName(line.controls.product_id.value) }} ({{ productUnit(line.controls.product_id.value) }})
+                  </div>
                 </c-col>
                 <c-col md="3">
                   <label cLabel [for]="'sale-unit-' + index">Unidad / precio</label>
                   <select cSelect [id]="'sale-unit-' + index" formControlName="unit_id" (change)="captureLineValue(index, 'unit_id', $event)">
-                    <option value="">Unidad base</option>
+                    <option value="" [disabled]="!basePrice(line)">
+                      Unidad base{{ basePrice(line) ? ' · ' + basePrice(line)?.amount + ' USD' : ' · Sin precio en esta lista' }}
+                    </option>
                     @for (price of availablePrices(line); track price.id) {
                       @if (price.unit) {
                         <option [value]="price.unit.id">{{ price.unit.name }} · {{ price.amount }} USD</option>
-                      } @else {
-                        <option value="">Unidad base · {{ price.amount }} USD</option>
                       }
                     }
                   </select>
+                  @if (isProductPriceLoading(line)) {
+                    <div class="form-text">Cargando precios...</div>
+                  }
                 </c-col>
                 <c-col md="2">
                   <label cLabel [for]="'sale-quantity-' + index">Cantidad</label>
-                  <input cFormControl [id]="'sale-quantity-' + index" type="number" min="0.001" step="0.001" formControlName="quantity" (input)="captureLineValue(index, 'quantity', $event)" />
+                  <input cFormControl [id]="'sale-quantity-' + index" type="number" min="0.001" step="0.001" formControlName="quantity" (input)="captureLineValue(index, 'quantity', $event)" (keydown.enter)="focusProductSearch($event)" />
                 </c-col>
                 <c-col md="2">
                   <label cLabel>Subtotal</label>
@@ -258,11 +307,16 @@
                   </div>
                 </c-col>
                 <c-col md="1">
-                  <button cButton color="danger" variant="outline" type="button" class="w-100" [disabled]="lines.length <= 1" (click)="removeLine(index)">
+                  <button cButton color="danger" variant="outline" type="button" class="w-100" aria-label="Quitar producto" (click)="removeLine(index)">
                     ×
                   </button>
                 </c-col>
               </c-row>
+            }
+            @if (!lines.length) {
+              <div class="text-center text-body-secondary border rounded py-4">
+                Busca y selecciona un producto para iniciar la venta.
+              </div>
             }
           </div>
 
@@ -293,6 +347,10 @@
             } @else if (!sessionsLoading && openSessionsForCurrency().length === 0) {
               <div class="alert alert-warning mt-3 mb-0" role="status">
                 No hay cajas con sesión abierta en VES. Abre una caja en bolívares para registrar una venta de contado.
+              </div>
+            } @else if (!sessionsLoading && !saleForm.controls.cash_session_id.value) {
+              <div class="alert alert-info mt-3 mb-0" role="status">
+                No hay una sesión abierta en VES para la caja principal seleccionada automáticamente. Selecciona la caja correspondiente.
               </div>
             }
           }

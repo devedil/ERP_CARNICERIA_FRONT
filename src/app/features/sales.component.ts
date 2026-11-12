@@ -20,7 +20,16 @@ import {
   RowComponent,
   TableDirective
 } from '@coreui/angular';
-import { catchError, finalize, forkJoin, of } from 'rxjs';
+import {
+  catchError,
+  debounceTime,
+  distinctUntilChanged,
+  finalize,
+  forkJoin,
+  of,
+  Subject,
+  switchMap
+} from 'rxjs';
 
 import { getApiErrorMessage } from '../core/api-error';
 import {
@@ -89,9 +98,16 @@ export class SalesComponent implements OnInit {
   readonly #inventoryApi = inject(InventoryService);
   readonly #cashApi = inject(CashService);
   readonly #exchangeRatesApi = inject(ExchangeRateService);
+  readonly #productSearchRequests = new Subject<string>();
 
   sales: Sale[] = [];
   products: Product[] = [];
+  productSearchResults: Product[] = [];
+  readonly loadingProductPrices = new Set<number>();
+  productSearchTerm = '';
+  productSearchLoading = false;
+  productSearchError = '';
+  productSearchMessage = '';
   customers: Customer[] = [];
   priceLists: PriceList[] = [];
   locations: InventoryLocation[] = [];
@@ -138,6 +154,34 @@ export class SalesComponent implements OnInit {
     this.saleForm.valueChanges
       .pipe(takeUntilDestroyed(this.#destroyRef))
       .subscribe(() => this.#changeDetector.markForCheck());
+    this.#productSearchRequests
+      .pipe(
+        debounceTime(250),
+        distinctUntilChanged(),
+        switchMap((search) => {
+          if (search.length < 2) {
+            this.productSearchLoading = false;
+            return of(null);
+          }
+          this.productSearchLoading = true;
+          this.productSearchError = '';
+          return this.#productsApi.search(search).pipe(
+            catchError((error: unknown) => {
+              this.productSearchError = getApiErrorMessage(error);
+              return of(null);
+            }),
+            finalize(() => {
+              this.productSearchLoading = false;
+              this.#changeDetector.markForCheck();
+            })
+          );
+        }),
+        takeUntilDestroyed(this.#destroyRef)
+      )
+      .subscribe((response) => {
+        this.productSearchResults = response?.data ?? [];
+        this.#changeDetector.markForCheck();
+      });
     this.load();
   }
 
@@ -219,17 +263,22 @@ export class SalesComponent implements OnInit {
     this.sessionsError = '';
     this.saleForm.reset({
       customer_id: '',
-      price_list_id: '',
-      inventory_location_id: '',
+      price_list_id: String(this.priceLists.find((item) => item.code === 'retail')?.id ?? ''),
+      inventory_location_id: String(this.locations.find((item) => item.code === 'main')?.id ?? ''),
       payment_mode: 'immediate',
       cash_session_id: '',
       payment_method: 'cash',
       notes: ''
     });
     this.lines.clear();
-    this.lines.push(this.createLine());
+    this.productSearchTerm = '';
+    this.productSearchResults = [];
+    this.productSearchError = '';
+    this.productSearchMessage = '';
+    this.#productSearchRequests.next('');
     this.saleModalVisible = true;
     this.refreshOpenSessions();
+    setTimeout(() => document.getElementById('sale-product-search')?.focus(), 0);
   }
 
   refreshOpenSessions(): void {
@@ -247,6 +296,7 @@ export class SalesComponent implements OnInit {
       .subscribe({
         next: (response) => {
           this.openSessions = response.data.filter((session) => session.status === 'open');
+          this.selectDefaultCashSession();
           this.#changeDetector.markForCheck();
         },
         error: (error: unknown) => {
@@ -256,24 +306,53 @@ export class SalesComponent implements OnInit {
       });
   }
 
-  addLine(): void {
-    this.lines.push(this.createLine());
+  onProductSearchInput(event: Event): void {
+    const search = (event.target as HTMLInputElement).value.trim();
+    this.productSearchTerm = search;
+    this.productSearchResults = [];
+    this.productSearchError = '';
+    this.productSearchMessage = '';
+    this.#productSearchRequests.next(search);
   }
 
-  removeLine(index: number): void {
-    if (this.lines.length > 1) {
-      this.lines.removeAt(index);
+  selectSingleSearchResult(event: Event): void {
+    event.preventDefault();
+    if (this.productSearchResults.length === 1) {
+      this.selectProduct(this.productSearchResults[0]);
     }
   }
 
-  captureProductValue(index: number, event: Event): void {
-    const line = this.lines.at(index);
-    const productId = (event.target as HTMLSelectElement).value;
-    line.controls.product_id.setValue(productId, { emitEvent: true });
-    line.controls.unit_id.setValue('');
-    this.formError = '';
-    this.onProductChanged(index);
-    this.#changeDetector.markForCheck();
+  selectProduct(product: Product): void {
+    const existingIndex = this.lines.controls.findIndex((line) =>
+      Number(line.controls.product_id.value) === product.id
+    );
+    if (existingIndex >= 0) {
+      this.productSearchMessage = `${product.name} ya está en la venta. Ajusta la cantidad en su línea para evitar sumar unidades o pesos de forma accidental.`;
+      this.productSearchTerm = '';
+      this.productSearchResults = [];
+      this.#productSearchRequests.next('');
+      this.focusQuantity(existingIndex);
+      return;
+    }
+
+    if (!this.products.some((item) => item.id === product.id)) {
+      this.products = [...this.products, product];
+    }
+    const line = this.createLine();
+    line.controls.product_id.setValue(String(product.id));
+    const index = this.lines.length;
+    this.lines.push(line);
+    this.productSearchTerm = '';
+    this.productSearchResults = [];
+    this.productSearchError = '';
+    this.productSearchMessage = '';
+    this.#productSearchRequests.next('');
+    this.onProductChanged(product.id);
+    this.focusQuantity(index);
+  }
+
+  removeLine(index: number): void {
+    this.lines.removeAt(index);
   }
 
   captureLineValue(index: number, control: 'unit_id' | 'quantity', event: Event): void {
@@ -282,15 +361,63 @@ export class SalesComponent implements OnInit {
     this.#changeDetector.markForCheck();
   }
 
-  private onProductChanged(index: number): void {
-    const line = this.lines.at(index);
-    const productId = Number(line.controls.product_id.value);
-    if (!productId || this.productPrices.has(productId)) {
+  onPriceListChanged(): void {
+    this.lines.controls.forEach((line) => line.controls.unit_id.setValue(''));
+  }
+
+  onPaymentModeChanged(): void {
+    if (this.saleForm.controls.payment_mode.value === 'immediate') {
+      this.selectDefaultCashSession();
+    }
+  }
+
+  productName(productId: string): string {
+    return this.products.find((product) => String(product.id) === productId)?.name ?? 'Producto';
+  }
+
+  productUnit(productId: string): string {
+    return this.products.find((product) => String(product.id) === productId)?.base_unit ?? '';
+  }
+
+  basePrice(line: SaleLineForm): ProductPrice | undefined {
+    return this.availablePrices(line).find((price) => price.unit === null);
+  }
+
+  isProductPriceLoading(line: SaleLineForm): boolean {
+    return this.loadingProductPrices.has(Number(line.controls.product_id.value));
+  }
+
+  focusProductSearch(event: Event): void {
+    event.preventDefault();
+    document.getElementById('sale-product-search')?.focus();
+  }
+
+  private selectDefaultCashSession(): void {
+    if (this.saleForm.controls.payment_mode.value !== 'immediate') return;
+    const primarySessions = this.openSessions.filter((session) =>
+      session.currency === 'VES' && session.register?.code === 'main'
+    );
+    this.saleForm.controls.cash_session_id.setValue(
+      primarySessions.length === 1 ? String(primarySessions[0].id) : ''
+    );
+  }
+
+  private focusQuantity(index: number): void {
+    setTimeout(() => document.getElementById(`sale-quantity-${index}`)?.focus(), 0);
+  }
+
+  private onProductChanged(productId: number): void {
+    if (!productId || this.productPrices.has(productId) || this.loadingProductPrices.has(productId)) {
       return;
     }
 
+    this.loadingProductPrices.add(productId);
     this.#productsApi.prices(productId)
       .pipe(takeUntilDestroyed(this.#destroyRef))
+      .pipe(finalize(() => {
+        this.loadingProductPrices.delete(productId);
+        this.#changeDetector.markForCheck();
+      }))
       .subscribe({
         next: (response) => {
           this.productPrices.set(productId, response.data);
@@ -355,7 +482,7 @@ export class SalesComponent implements OnInit {
     }
 
     const values = this.saleForm.getRawValue();
-    if (!values.lines.every((line) => line.product_id && line.quantity && this.priceForRawLine(line))) {
+    if (!values.lines.length || !values.lines.every((line) => line.product_id && line.quantity && this.priceForRawLine(line))) {
       this.formError = 'Selecciona productos con precio activo para la lista de precios elegida.';
       return;
     }
@@ -394,10 +521,6 @@ export class SalesComponent implements OnInit {
         payment_method: values.payment_method,
         amount: this.normalizeDecimal(this.estimatedTotal(), 6)
       });
-    }
-
-    if (!window.confirm(`¿Confirmas registrar la venta por ${this.estimatedTotal()} VES?`)) {
-      return;
     }
 
     this.saving = true;
